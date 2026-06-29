@@ -1,12 +1,10 @@
-import { EmptyPage } from "../../_components/EmptyPage";
+import { ReportResult } from "../ReportResult";
 
-export default function Page() {
-  return (
-    <EmptyPage
-      eyebrow="Raporty AI"
-      title="Puste szczegóły raportu"
-      description="Miejsce na opis raportu, wymagane parametry, tabele źródłowe i przycisk przejścia do uruchomienia."
-      items={["Opis raportu", "Parametry wejściowe", "Tabele", "Uruchom raport"]}
-    />
-  );
+export default async function Page({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = await params;
+  return <ReportResult reportId={id} />;
 }
