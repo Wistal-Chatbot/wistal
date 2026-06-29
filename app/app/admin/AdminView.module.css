@@ -1,0 +1,471 @@
+.page {
+  padding: 24px 28px;
+}
+
+/* ── Tabs ────────────────────────────────────────────────────────────── */
+
+.tabBar {
+  border-bottom: 1px solid #e4e7ec;
+  display: flex;
+  gap: 4px;
+  margin-bottom: 22px;
+}
+
+.tab,
+.tabActive {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: -1px;
+  padding: 11px 16px;
+}
+
+.tab {
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+}
+
+.tab:hover {
+  color: var(--text-secondary);
+}
+
+.tabActive {
+  border-bottom: 2px solid var(--primary);
+  color: var(--primary);
+}
+
+/* ── Overview: stat cards ────────────────────────────────────────────── */
+
+.statGrid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(4, 1fr);
+  margin-bottom: 20px;
+}
+
+.statCard {
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  padding: 18px;
+}
+
+.statLabel {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+
+.statValue {
+  color: var(--text-primary);
+  font-family: var(--font-ibm-plex-mono), monospace;
+  font-size: 28px;
+  font-weight: 600;
+}
+
+.statDeltaGood,
+.statDeltaMuted {
+  font-family: var(--font-ibm-plex-mono), monospace;
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+.statDeltaGood {
+  color: #1f6b4a;
+}
+
+.statDeltaMuted {
+  color: var(--text-muted);
+}
+
+/* ── Overview: chart + status ────────────────────────────────────────── */
+
+.midGrid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: 1.6fr 1fr;
+  margin-bottom: 20px;
+}
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  padding: 20px;
+}
+
+.panelTitle {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 18px;
+}
+
+.chart {
+  align-items: flex-end;
+  display: flex;
+  gap: 14px;
+  height: 150px;
+}
+
+.chartCol {
+  align-items: center;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+  height: 100%;
+  justify-content: flex-end;
+}
+
+.chartBar,
+.chartBarActive {
+  border-radius: 5px 5px 0 0;
+  width: 100%;
+}
+
+.chartBar {
+  background: #cdd9e6;
+}
+
+.chartBarActive {
+  background: var(--primary);
+}
+
+.chartDay,
+.chartDayActive {
+  font-family: var(--font-ibm-plex-mono), monospace;
+  font-size: 11px;
+}
+
+.chartDay {
+  color: var(--placeholder);
+}
+
+.chartDayActive {
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.statusList {
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+}
+
+.statusRow {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+}
+
+.dotOnline,
+.dotWarn {
+  border-radius: 50%;
+  flex: none;
+  height: 8px;
+  width: 8px;
+}
+
+.dotOnline {
+  background: #2f7d5b;
+}
+
+.dotWarn {
+  background: #9a6a18;
+}
+
+.statusName {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.statusValueOnline,
+.statusValueWarn {
+  font-family: var(--font-ibm-plex-mono), monospace;
+  font-size: 12px;
+}
+
+.statusValueOnline {
+  color: #1f6b4a;
+}
+
+.statusValueWarn {
+  color: #9a6a18;
+}
+
+/* ── Tables (shared) ─────────────────────────────────────────────────── */
+
+.tableCard {
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.tableCardTitle {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.tableCard > .tableCardTitle {
+  border-bottom: 1px solid #eceff3;
+  padding: 16px 20px;
+}
+
+.manageHead {
+  align-items: center;
+  border-bottom: 1px solid #eceff3;
+  display: flex;
+  padding: 16px 20px;
+}
+
+.manageHead .tableCardTitle {
+  flex: 1;
+}
+
+.manageCount {
+  color: var(--placeholder);
+  font-family: var(--font-ibm-plex-mono), monospace;
+  font-size: 12px;
+}
+
+.table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.th,
+.thRight {
+  background: #f7f8fa;
+  color: #6b7585;
+  font-family: var(--font-ibm-plex-mono), monospace;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 10px 20px;
+  text-align: left;
+}
+
+.thRight {
+  text-align: right;
+}
+
+.tr {
+  border-top: 1px solid #f0f2f5;
+}
+
+.td {
+  padding: 12px 20px;
+}
+
+.tdName {
+  font-size: 13px;
+  font-weight: 600;
+  padding: 12px 20px;
+}
+
+.tdSecondary {
+  color: var(--text-secondary);
+  font-size: 13px;
+  padding: 12px 20px;
+}
+
+.tdMuted {
+  color: var(--text-muted);
+  font-family: var(--font-ibm-plex-mono), monospace;
+  font-size: 13px;
+  padding: 12px 20px;
+}
+
+.tdMonoRight {
+  font-family: var(--font-ibm-plex-mono), monospace;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 12px 20px;
+  text-align: right;
+}
+
+.tdMonoSmall {
+  color: var(--text-secondary);
+  font-family: var(--font-ibm-plex-mono), monospace;
+  font-size: 12px;
+  padding: 13px 20px;
+}
+
+.rowName {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.rowDesc {
+  color: var(--placeholder);
+  font-size: 12px;
+  margin-top: 2px;
+  max-width: 260px;
+}
+
+.tdActions {
+  padding: 13px 20px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.actionEdit {
+  color: var(--primary);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  margin-right: 14px;
+}
+
+.actionDelete {
+  color: var(--accent-red);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.pillActive,
+.pillIdle {
+  border-radius: 20px;
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 10px;
+}
+
+.pillActive {
+  background: #e6f2ec;
+  color: #1f6b4a;
+}
+
+.pillIdle {
+  background: #eef1f5;
+  color: var(--text-muted);
+}
+
+/* ── Management: table + form ────────────────────────────────────────── */
+
+.manageGrid {
+  align-items: start;
+  display: grid;
+  gap: 20px;
+  grid-template-columns: 1.5fr 1fr;
+}
+
+.formCard {
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  padding: 22px;
+}
+
+.formTitle {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.formHint {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+  margin-bottom: 16px;
+}
+
+.formLabel {
+  color: #3a434f;
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 7px;
+}
+
+.formLabel:not(:first-of-type) {
+  margin-top: 14px;
+}
+
+.input {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 13px;
+  outline: none;
+  padding: 10px 12px;
+  width: 100%;
+}
+
+.textarea {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.5;
+  min-height: 96px;
+  outline: none;
+  padding: 11px 12px;
+  resize: vertical;
+  width: 100%;
+}
+
+.checklist {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 14px 0;
+}
+
+.checkItem {
+  align-items: center;
+  color: var(--text-secondary);
+  display: flex;
+  font-size: 12px;
+  gap: 9px;
+}
+
+.checkBox {
+  align-items: center;
+  background: #eef3f8;
+  border-radius: 5px;
+  color: var(--primary);
+  display: flex;
+  font-weight: 700;
+  height: 18px;
+  justify-content: center;
+  width: 18px;
+}
+
+.submitButton {
+  background: var(--primary);
+  border: 0;
+  border-radius: 8px;
+  color: #fff;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  margin-top: 14px;
+  padding: 12px;
+  width: 100%;
+}
+
+.submitButton:hover {
+  background: var(--primary-hover);
+}
+
+@media (max-width: 1100px) {
+  .statGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .midGrid,
+  .manageGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 820px) {
+  .page {
+    padding: 18px 16px;
+  }
+}

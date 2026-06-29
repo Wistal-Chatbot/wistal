@@ -1,12 +1,7 @@
-import { EmptyPage } from "../../../_components/EmptyPage";
+import { redirect } from "next/navigation";
 
+// The report editor screen is not part of the current design handoff yet;
+// send users back to the reports management list.
 export default function Page() {
-  return (
-    <EmptyPage
-      eyebrow="Admin · Raporty AI"
-      title="Pusta edycja raportu AI"
-      description="Miejsce na edycję promptu, output_schema, html_widget, input_params, model_config i statusu aktywności."
-      items={["System prompt", "Output schema", "HTML widget", "Model config"]}
-    />
-  );
+  redirect("/app/admin/ai-reports");
 }
