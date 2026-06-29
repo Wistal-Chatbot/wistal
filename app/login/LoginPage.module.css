@@ -41,9 +41,7 @@
 
 .logo {
   display: block;
-  height: 40px;
   position: relative;
-  width: auto;
   z-index: 1;
 }
 

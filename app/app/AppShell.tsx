@@ -39,7 +39,13 @@ export function AppShell({ children }: { children: ReactNode }) {
     <div className={styles.shell}>
       <aside className={styles.sidebar}>
         <div className={styles.logoRow}>
-          <Image src="/assets/wistal-logo.png" alt="Wistal" width={180} height={62} />
+          <Image
+            src="/assets/wistal-logo.png"
+            alt="Wistal"
+            width={122}
+            height={24}
+            unoptimized
+          />
         </div>
 
         <p className={styles.navLabel}>NAWIGACJA</p>
