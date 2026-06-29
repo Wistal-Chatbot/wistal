@@ -1,0 +1,2 @@
+ALTER TABLE "chatbot"."app_users" DROP CONSTRAINT "app_users_wistal_email_check";--> statement-breakpoint
+ALTER TABLE "chatbot"."auth_verification_tokens" DROP CONSTRAINT "auth_tokens_wistal_email_check";
