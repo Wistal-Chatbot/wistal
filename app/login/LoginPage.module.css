@@ -188,15 +188,16 @@
   border-radius: 8px;
   color: var(--text-primary);
   display: flex;
-  flex: 1;
+  flex: 0 0 56px;
   font-family: var(--font-ibm-plex-mono), monospace;
   font-size: 24px;
   font-weight: 600;
   height: 56px;
   justify-content: center;
-  min-width: 0;
+  min-width: 56px;
   outline: none;
   text-align: center;
+  width: 56px;
 }
 
 .codeInput:first-child {
@@ -269,8 +270,11 @@
   }
 
   .codeInput {
+    flex-basis: 44px;
     font-size: 20px;
     height: 50px;
+    min-width: 44px;
+    width: 44px;
   }
 
   .secondaryActions {
