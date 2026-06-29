@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { isWistalEmail, normalizeEmail } from "@/lib/auth/domain";
+import { isAllowedLoginEmail, normalizeEmail } from "@/lib/auth/domain";
 import { sendOtpEmail } from "@/lib/auth/email";
 import { generateOtpCode, storeOtp } from "@/lib/auth/otp";
 import { checkRateLimit } from "@/lib/auth/rate-limit";
@@ -25,7 +25,7 @@ export async function POST(request: Request) {
   }
 
   const email = normalizeEmail(parsed.data.email);
-  if (!isWistalEmail(email)) {
+  if (!isAllowedLoginEmail(email)) {
     return Response.json(
       { error: "Dozwolone są tylko adresy @wistal.com.pl." },
       { status: 400 },

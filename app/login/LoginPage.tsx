@@ -21,6 +21,10 @@ const INITIAL_COUNTDOWN_SECONDS = 5 * 60;
 type Step = "email" | "code";
 type SubmitState = "idle" | "submitting";
 
+type LoginPageProps = {
+  allowNonWistalEmails: boolean;
+};
+
 function normalizeEmail(value: string) {
   return value.trim().toLowerCase();
 }
@@ -39,7 +43,7 @@ function errorForStatus(status: number, fallback: string) {
   return fallback || "Nie udało się wykonać operacji. Spróbuj ponownie.";
 }
 
-export function LoginPage() {
+export function LoginPage({ allowNonWistalEmails }: LoginPageProps) {
   const router = useRouter();
   const [step, setStep] = useState<Step>("email");
   const [email, setEmail] = useState("");
@@ -91,7 +95,7 @@ export function LoginPage() {
     setError("");
     setInfo("");
 
-    if (!normalizedEmail.endsWith(ALLOWED_DOMAIN)) {
+    if (!allowNonWistalEmails && !normalizedEmail.endsWith(ALLOWED_DOMAIN)) {
       setError("Dostęp tylko dla adresów @wistal.com.pl.");
       return;
     }
@@ -229,9 +233,10 @@ export function LoginPage() {
           className={styles.logo}
           src="/assets/wistal-logo.png"
           alt="Wistal"
-          width={180}
-          height={62}
+          width={147}
+          height={29}
           priority
+          unoptimized
         />
         <div className={styles.brandCopy}>
           <h1>Panel wewnętrzny</h1>
@@ -251,7 +256,9 @@ export function LoginPage() {
           {step === "email" ? (
             <form className={styles.form} onSubmit={submitEmail}>
               <p className={styles.helpText}>
-                Podaj służbowy adres e-mail. Wyślemy jednorazowy kod dostępu.
+                {allowNonWistalEmails
+                  ? "Podaj adres e-mail. Wyślemy jednorazowy kod dostępu."
+                  : "Podaj służbowy adres e-mail. Wyślemy jednorazowy kod dostępu."}
               </p>
               <label className={styles.label} htmlFor="email">
                 Adres e-mail
@@ -279,7 +286,9 @@ export function LoginPage() {
                 {isSubmitting ? "Wysyłanie kodu..." : "Wyślij kod jednorazowy"}
               </button>
               <p className={styles.domainNote}>
-                Dostęp tylko dla domeny @wistal.com.pl
+                {allowNonWistalEmails
+                  ? "Logowanie zewnętrznych adresów jest włączone."
+                  : "Dostęp tylko dla domeny @wistal.com.pl"}
               </p>
             </form>
           ) : (
