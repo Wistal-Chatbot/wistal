@@ -12,6 +12,22 @@ const bodySchema = z.object({
   code: z.string().regex(/^\d{6}$/),
 });
 
+function isOldWistalConstraintError(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const maybeError = error as {
+    cause?: { constraint_name?: string };
+    constraint_name?: string;
+  };
+
+  return (
+    maybeError.constraint_name === "app_users_wistal_email_check" ||
+    maybeError.cause?.constraint_name === "app_users_wistal_email_check"
+  );
+}
+
 export async function POST(request: Request) {
   let json: unknown;
   try {
@@ -61,7 +77,23 @@ export async function POST(request: Request) {
     );
   }
 
-  const user = await loginUser(email);
+  let user;
+  try {
+    user = await loginUser(email);
+  } catch (error) {
+    if (isOldWistalConstraintError(error)) {
+      return Response.json(
+        {
+          error:
+            "Baza danych nadal blokuje adresy spoza @wistal.com.pl. Uruchom migracje bazy danych i spróbuj ponownie.",
+        },
+        { status: 500 },
+      );
+    }
+
+    throw error;
+  }
+
   if (!user.isActive) {
     return Response.json(
       { error: "Konto jest nieaktywne. Skontaktuj się z administratorem." },
