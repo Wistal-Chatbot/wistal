@@ -43,6 +43,7 @@ export function ChatView({
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [chatInput, setChatInput] = useState(initialPrompt);
   const [search, setSearch] = useState("");
+  const [historyOpen, setHistoryOpen] = useState(true);
   const [webSearch, setWebSearch] = useState(false);
   const [sending, setSending] = useState(false);
   const [qaForm, setQaForm] = useState<QaForm | null>(null);
@@ -209,7 +210,10 @@ export function ChatView({
 
   return (
     <div className={styles.chat}>
-      <aside className={styles.history}>
+      <aside
+        id="chat-history-panel"
+        className={`${styles.history} ${historyOpen ? styles.historyOpen : styles.historyClosed}`}
+      >
         <div className={styles.historyHead}>
           <button type="button" className={styles.newChat} onClick={newChat}>
             <span className={styles.newChatPlus}>+</span>
@@ -247,9 +251,16 @@ export function ChatView({
 
       <div className={styles.column}>
         <div className={styles.columnHead}>
-          <span className={styles.menuIcon}>
-            <MenuIcon size={20} />
-          </span>
+          <button
+            type="button"
+            className={styles.historyToggle}
+            aria-controls="chat-history-panel"
+            aria-expanded={historyOpen}
+            aria-label={historyOpen ? "Ukryj historię rozmów" : "Pokaż historię rozmów"}
+            onClick={() => setHistoryOpen((open) => !open)}
+          >
+            <MenuIcon size={18} />
+          </button>
           <div className={styles.columnTitle}>{activeTitle}</div>
         </div>
 
@@ -390,6 +401,14 @@ export function ChatView({
 
             <div className={styles.quickBar}>
               <span className={styles.quickLabel}>SZYBKIE AKCJE</span>
+              <button
+                type="button"
+                className={webSearch ? styles.webToggleOn : styles.webToggle}
+                onClick={toggleWebSearch}
+              >
+                <span className={styles.webGlobe}>🌐</span>
+                Wyszukiwanie w internecie: {webSearch ? "WŁ" : "WYŁ"}
+              </button>
               {enabledActions.map((action) => (
                 <button
                   type="button"
@@ -402,17 +421,6 @@ export function ChatView({
                   {action.name}
                 </button>
               ))}
-            </div>
-
-            <div className={styles.webToggleRow}>
-              <button
-                type="button"
-                className={webSearch ? styles.webToggleOn : styles.webToggle}
-                onClick={toggleWebSearch}
-              >
-                <span className={styles.webGlobe}>🌐</span>
-                Wyszukiwanie w internecie: {webSearch ? "WŁ" : "WYŁ"}
-              </button>
             </div>
 
             <div className={styles.inputRow}>
