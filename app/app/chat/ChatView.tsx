@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   type ChatMessage,
   type ChatSession,
@@ -8,9 +8,16 @@ import {
   type QuickAction,
   type TextSegment,
   buildMockReply,
-  chatSessions,
   quickActions,
 } from "@/lib/mock-data";
+import {
+  createSession,
+  dtoToUiSession,
+  fetchSession,
+  fetchSessions,
+  messagesToUi,
+  setWebSearch as apiSetWebSearch,
+} from "./chatApi";
 import {
   BotIcon,
   CheckIcon,
@@ -72,11 +79,9 @@ export function ChatView({
   sessionId?: string;
   initialPrompt?: string;
 }) {
-  const startSession =
-    chatSessions.find((s) => s.id === sessionId) ?? chatSessions[0];
-
-  const [activeId, setActiveId] = useState<string | null>(startSession?.id ?? null);
-  const [messages, setMessages] = useState<ChatMessage[]>(startSession?.messages ?? []);
+  const [sessions, setSessions] = useState<ChatSession[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState(initialPrompt);
   const [search, setSearch] = useState("");
   const [webSearch, setWebSearch] = useState(false);
@@ -86,26 +91,79 @@ export function ChatView({
   const [fbSent, setFbSent] = useState<Record<string, boolean>>({});
   const msgCounter = useRef(0);
 
-  const activeSession = chatSessions.find((s) => s.id === activeId) ?? null;
+  // Load the session list on mount, then open the requested session (if any).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const list = await fetchSessions();
+        if (cancelled) return;
+        setSessions(list.map(dtoToUiSession));
+
+        if (!sessionId) return;
+        const requested = list.find((s) => s.id === sessionId);
+        if (!requested) return;
+
+        const detail = await fetchSession(requested.id);
+        if (cancelled) return;
+        setActiveId(detail.session.id);
+        setMessages(messagesToUi(detail.messages));
+        setWebSearch(detail.session.webSearchEnabled);
+      } catch {
+        // Leave the list empty on failure; the empty-state copy still applies.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId]);
+
+  const activeSession = sessions.find((s) => s.id === activeId) ?? null;
   const activeTitle = activeSession?.title ?? "Nowa rozmowa";
 
-  const visibleSessions = chatSessions.filter((s) =>
+  const visibleSessions = sessions.filter((s) =>
     s.title.toLowerCase().includes(search.trim().toLowerCase()),
   );
 
-  function selectSession(s: ChatSession) {
+  async function selectSession(s: ChatSession) {
     setActiveId(s.id);
-    setMessages(s.messages);
     setQaForm(null);
+    try {
+      const { session, messages: loaded } = await fetchSession(s.id);
+      setMessages(messagesToUi(loaded));
+      setWebSearch(session.webSearchEnabled);
+    } catch {
+      setMessages([]);
+    }
   }
 
-  function newChat() {
-    setActiveId(null);
-    setMessages([]);
+  async function newChat() {
+    setQaForm(null);
     setChatInput("");
-    setQaForm(null);
+    try {
+      const dto = await createSession();
+      setSessions((prev) => [dtoToUiSession(dto), ...prev]);
+      setActiveId(dto.id);
+      setMessages([]);
+      setWebSearch(dto.webSearchEnabled);
+    } catch {
+      // Could not create a session — keep the current view.
+    }
   }
 
+  // Persist the web-search toggle on the active session (optimistic + rollback).
+  async function toggleWebSearch() {
+    const next = !webSearch;
+    setWebSearch(next);
+    if (!activeId) return;
+    try {
+      await apiSetWebSearch(activeId, next);
+    } catch {
+      setWebSearch(!next);
+    }
+  }
+
+  // TODO: persist + AI reply via POST /api/chat/sessions/:id/messages (separate task).
   function send(text?: string) {
     const value = (text ?? chatInput).trim();
     if (!value) return;
@@ -330,7 +388,7 @@ export function ChatView({
               <button
                 type="button"
                 className={webSearch ? styles.webToggleOn : styles.webToggle}
-                onClick={() => setWebSearch((v) => !v)}
+                onClick={toggleWebSearch}
               >
                 <span className={styles.webGlobe}>🌐</span>
                 Wyszukiwanie w internecie: {webSearch ? "WŁ" : "WYŁ"}
