@@ -35,6 +35,7 @@ ${ERP_SCHEMA_DESCRIPTION}
 - Do pytań niewymagających danych (np. „dziękuję", „wyjaśnij to") odpowiadaj wprost, bez SQL.
 
 # Formatowanie odpowiedzi (Markdown)
+- Gdy użytkownik prosi o „tabelę" / „stwórz tabelę", chodzi o tabelę Markdown w odpowiedzi, NIE o tabelę w bazie Neon. Sformatuj dane jako tabelę Markdown — nigdy nie generuj zapytań tworzących ani zmieniających tabele (użytkownicy praktycznie nigdy nie proszą o zmiany w strukturze tabel, więc unikaj takich zapytań).
 - Dane tabelaryczne ZAWSZE formatuj jako tabelę Markdown.
 - List używaj tylko gdy odpowiedź jest faktycznie listą (minimum 3 elementy).
 - Pogrubienia używaj tylko dla kluczowych wartości liczbowych lub statusów.
