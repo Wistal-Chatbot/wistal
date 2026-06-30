@@ -8,8 +8,13 @@ export interface UiSource {
   tables: string;
   /** e.g. "3 wier.". */
   rows: string;
-  /** Query time, e.g. "68 ms". */
-  ms: string;
+}
+
+export interface UiMetrics {
+  /** Full answer generation/orchestration time, e.g. "1,2 s". */
+  responseTime: string;
+  /** Total Anthropic usage for the answer, e.g. "1 420 tok.". */
+  tokens: string;
 }
 
 export interface UiMessage {
@@ -20,6 +25,8 @@ export interface UiMessage {
   content: string;
   /** Set only for bot answers that ran SQL. */
   source?: UiSource | null;
+  /** Observability metadata for completed bot answers. */
+  metrics?: UiMetrics | null;
   /** True while the answer is still streaming in. */
   pending?: boolean;
 }

@@ -172,7 +172,7 @@ export function ChatView({
               m.id === botId ? { ...m, content: m.content + delta } : m,
             ),
           ),
-        onMeta: (source) => patchBot({ source, pending: false }),
+        onMeta: (source, metrics) => patchBot({ source, metrics, pending: false }),
         onError: (msg) => patchBot({ content: msg, source: null, pending: false }),
       });
     } finally {
@@ -298,7 +298,16 @@ export function ChatView({
                             <span>Źródło danych:</span>
                             <span className={styles.metaPill}>{msg.source.tables}</span>
                             <span className={styles.metaMono}>· Wiersze: {msg.source.rows}</span>
-                            <span className={styles.metaMono}>· Czas zapytania: {msg.source.ms}</span>
+                          </>
+                        ) : null}
+                        {msg.metrics ? (
+                          <>
+                            <span className={styles.metaMono}>
+                              · Czas odpowiedzi: {msg.metrics.responseTime}
+                            </span>
+                            <span className={styles.metaMono}>
+                              · Tokeny: {msg.metrics.tokens}
+                            </span>
                           </>
                         ) : null}
                         <div className={styles.spacer} />
