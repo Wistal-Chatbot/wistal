@@ -41,12 +41,27 @@ ${ERP_SCHEMA_DESCRIPTION}
 - Nie używaj nagłówków (## ani #) w zwykłych odpowiedziach konwersacyjnych.
 - Odpowiadaj krótko i konkretnie — bez wstępów i podsumowań, od razu do rzeczy.`;
 
-export function buildSystemPrompt(): Anthropic.TextBlockParam[] {
-  return [
+/**
+ * Added only when the session has web search enabled. Kept as a separate,
+ * uncached block so the static prompt above stays byte-identical (cache hits).
+ * Without this, the strongly ERP-framed prompt makes the model wrongly claim it
+ * has no internet access even when the `web_search` tool is present.
+ */
+const WEB_SEARCH_INSTRUCTION = `# Wyszukiwanie w internecie
+W tej rozmowie masz dostępne narzędzie \`web_search\`. Używaj go, gdy pytanie dotyczy informacji spoza bazy ERP — np. aktualnych wydarzeń, danych rynkowych albo informacji o firmach/stronach z internetu. Do danych z ERP nadal używaj \`execute_sql\`. NIGDY nie twierdź, że nie masz dostępu do internetu — to narzędzie jest dostępne.`;
+
+export function buildSystemPrompt(
+  webSearchEnabled: boolean,
+): Anthropic.TextBlockParam[] {
+  const blocks: Anthropic.TextBlockParam[] = [
     {
       type: "text",
       text: SYSTEM_PROMPT_TEXT,
       cache_control: { type: "ephemeral" },
     },
   ];
+  if (webSearchEnabled) {
+    blocks.push({ type: "text", text: WEB_SEARCH_INSTRUCTION });
+  }
+  return blocks;
 }
