@@ -1,11 +1,11 @@
 import type { MessageDto, SessionDto } from "@/lib/api/chat-types";
-import type { ChatMessage, ChatSession } from "@/lib/mock-data";
+
+import type { UiMessage, UiSession, UiSource } from "./types";
 
 /**
- * Client-side access to the chat session API plus adapters that map the DB-shaped
- * DTOs onto the UI types the prototype `ChatView` renders. The rich `source`
- * metadata on assistant bubbles comes from the (separate) message pipeline, so
- * loaded messages render as plain text blocks here.
+ * Client-side access to the chat API plus adapters that map the DB-shaped DTOs
+ * onto the UI types `ChatView` renders. Bot answers are Markdown; their "source"
+ * pill comes from query metadata (live via the stream, or persisted on reload).
  */
 
 async function apiFetch<T>(input: string, init?: RequestInit): Promise<T> {
@@ -67,7 +67,98 @@ export async function setWebSearch(
   return data.session;
 }
 
-// ── Adapters: DB DTO → prototype UI types ────────────────────────────────────
+// ── Streaming a chat turn (NDJSON) ───────────────────────────────────────────
+
+export interface StreamMeta {
+  messageId: number;
+  tables: string[];
+  rowCount: number | null;
+  executionMs: number | null;
+  queryAuditId: number | null;
+}
+
+export interface StreamHandlers {
+  onDelta: (text: string) => void;
+  onMeta: (source: UiSource | null, meta: StreamMeta) => void;
+  onError: (message: string) => void;
+}
+
+/**
+ * Sends a message and consumes the NDJSON stream from the orchestrator,
+ * dispatching `delta` / `meta` / `error` frames to the handlers.
+ */
+export async function streamMessage(
+  sessionId: string,
+  message: string,
+  handlers: StreamHandlers,
+): Promise<void> {
+  const res = await fetch(`/api/chat/sessions/${sessionId}/messages`, {
+    method: "POST",
+    credentials: "same-origin",
+    cache: "no-store",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message, stream: true }),
+  });
+
+  if (!res.ok || !res.body) {
+    let msg = "Wystąpił błąd. Spróbuj ponownie.";
+    try {
+      const data = (await res.json()) as { error?: string };
+      if (data?.error) msg = data.error;
+    } catch {
+      // keep generic message
+    }
+    handlers.onError(msg);
+    return;
+  }
+
+  const handleLine = (line: string) => {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+    let event: { type?: string; text?: string; error?: string } & Partial<StreamMeta>;
+    try {
+      event = JSON.parse(trimmed);
+    } catch {
+      return;
+    }
+    if (event.type === "delta" && typeof event.text === "string") {
+      handlers.onDelta(event.text);
+    } else if (event.type === "meta") {
+      const meta: StreamMeta = {
+        messageId: event.messageId ?? 0,
+        tables: event.tables ?? [],
+        rowCount: event.rowCount ?? null,
+        executionMs: event.executionMs ?? null,
+        queryAuditId: event.queryAuditId ?? null,
+      };
+      handlers.onMeta(
+        toSource(meta.tables, meta.rowCount, meta.executionMs),
+        meta,
+      );
+    } else if (event.type === "error" && typeof event.error === "string") {
+      handlers.onError(event.error);
+    }
+  };
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let nl: number;
+    while ((nl = buffer.indexOf("\n")) >= 0) {
+      handleLine(buffer.slice(0, nl));
+      buffer = buffer.slice(nl + 1);
+    }
+  }
+  buffer += decoder.decode();
+  if (buffer.trim()) handleLine(buffer);
+}
+
+// ── Adapters: DB DTO → UI types ──────────────────────────────────────────────
 
 function timeOf(iso: string): string {
   return new Date(iso).toLocaleTimeString("pl-PL", {
@@ -95,32 +186,44 @@ export function formatSessionTime(iso: string): string {
   return `${day}, ${timeOf(iso)}`;
 }
 
-export function dtoToUiSession(dto: SessionDto): ChatSession {
+/** Builds the "Źródło danych" pill, or null for answers that ran no SQL. */
+export function toSource(
+  tables: string[],
+  rowCount: number | null,
+  executionMs: number | null,
+): UiSource | null {
+  if (tables.length === 0 && rowCount === null) return null;
+  return {
+    tables: tables.length > 0 ? tables.join(", ") : "—",
+    rows: rowCount !== null ? `${rowCount} wier.` : "—",
+    ms: executionMs !== null ? `${executionMs} ms` : "—",
+  };
+}
+
+export function dtoToUiSession(dto: SessionDto): UiSession {
   return {
     id: dto.id,
     title: dto.title ?? "Nowa rozmowa",
     time: formatSessionTime(dto.lastMessageAt ?? dto.updatedAt ?? dto.createdAt),
-    // The schema has no chat/akcja distinction yet — default everything to chat.
-    tag: "chat",
-    messages: [],
   };
 }
 
-export function dtoToUiMessage(dto: MessageDto): ChatMessage {
+export function dtoToUiMessage(dto: MessageDto): UiMessage {
   const time = timeOf(dto.createdAt);
   if (dto.messageType === "user") {
-    return { id: String(dto.id), role: "user", time, text: dto.content };
+    return { id: String(dto.id), role: "user", time, content: dto.content };
   }
   return {
     id: String(dto.id),
     role: "bot",
     time,
-    blocks: [{ type: "text", parts: [{ text: dto.content }] }],
+    content: dto.content,
+    source: toSource(dto.metadata.tables, dto.rowCount, dto.metadata.executionMs),
   };
 }
 
 /** Maps persisted messages to UI messages, keeping only user/assistant turns. */
-export function messagesToUi(dtos: MessageDto[]): ChatMessage[] {
+export function messagesToUi(dtos: MessageDto[]): UiMessage[] {
   return dtos
     .filter((m) => m.messageType === "user" || m.messageType === "assistant")
     .map(dtoToUiMessage);
