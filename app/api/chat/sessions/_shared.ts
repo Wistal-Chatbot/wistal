@@ -5,18 +5,56 @@ import {
   type MessageDto,
   type MessageMetadata,
   type SessionDto,
+  type TokenUsageMetadata,
 } from "@/lib/api/chat-types";
 import type { ChatMessage, ChatSession } from "@/lib/db/schema";
+
+function readNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function readTokenUsage(value: unknown): TokenUsageMetadata | null {
+  const usage = (value ?? {}) as Record<string, unknown>;
+  const inputTokens = readNumber(usage.inputTokens);
+  const outputTokens = readNumber(usage.outputTokens);
+  const cacheCreationInputTokens = readNumber(usage.cacheCreationInputTokens);
+  const cacheReadInputTokens = readNumber(usage.cacheReadInputTokens);
+  const totalTokens = readNumber(usage.totalTokens);
+
+  if (
+    inputTokens === null ||
+    outputTokens === null ||
+    cacheCreationInputTokens === null ||
+    cacheReadInputTokens === null ||
+    totalTokens === null
+  ) {
+    return null;
+  }
+
+  return {
+    inputTokens,
+    outputTokens,
+    cacheCreationInputTokens,
+    cacheReadInputTokens,
+    totalTokens,
+  };
+}
 
 /** Normalizes the `chat_messages.metadata` JSONB blob to the wire shape. */
 function readMessageMetadata(value: unknown): MessageMetadata {
   const meta = (value ?? {}) as Record<string, unknown>;
+  const tokenUsage = readTokenUsage(meta.tokenUsage);
+  const tokensUsed = readNumber(meta.tokensUsed) ?? tokenUsage?.totalTokens ?? null;
+
   return {
     tables: Array.isArray(meta.tables)
       ? meta.tables.filter((t): t is string => typeof t === "string")
       : [],
-    executionMs: typeof meta.executionMs === "number" ? meta.executionMs : null,
-    queryAuditId: typeof meta.queryAuditId === "number" ? meta.queryAuditId : null,
+    executionMs: readNumber(meta.executionMs),
+    responseMs: readNumber(meta.responseMs),
+    queryAuditId: readNumber(meta.queryAuditId),
+    tokensUsed,
+    tokenUsage,
   };
 }
 

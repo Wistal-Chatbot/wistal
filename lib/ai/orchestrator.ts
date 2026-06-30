@@ -8,6 +8,7 @@ import {
   insertQueryAudit,
   touchChatSession,
 } from "@/lib/db/queries";
+import type { TokenUsageMetadata } from "@/lib/api/chat-types";
 import type { AppUser, ChatMessage, ChatSession } from "@/lib/db/schema";
 import { log, preview } from "@/lib/log";
 import { enforceRowLimit } from "@/lib/sql/enforce-row-limit";
@@ -27,7 +28,10 @@ export type ChatTurnEvent =
       tables: string[];
       rowCount: number | null;
       executionMs: number | null;
+      responseMs: number | null;
       queryAuditId: number | null;
+      tokensUsed: number | null;
+      tokenUsage: TokenUsageMetadata | null;
     }
   | { type: "error"; error: string };
 
@@ -35,6 +39,31 @@ const MAX_ITERATIONS = 5;
 const MAX_SQL_RETRIES = 2;
 const ROW_LIMIT = 500;
 const STATEMENT_TIMEOUT_MS = 10_000;
+
+function createTokenUsageTotals(): TokenUsageMetadata {
+  return {
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheCreationInputTokens: 0,
+    cacheReadInputTokens: 0,
+    totalTokens: 0,
+  };
+}
+
+function addTokenUsage(
+  totals: TokenUsageMetadata,
+  usage: Anthropic.Usage,
+): void {
+  totals.inputTokens += usage.input_tokens;
+  totals.outputTokens += usage.output_tokens;
+  totals.cacheCreationInputTokens += usage.cache_creation_input_tokens ?? 0;
+  totals.cacheReadInputTokens += usage.cache_read_input_tokens ?? 0;
+  totals.totalTokens =
+    totals.inputTokens +
+    totals.outputTokens +
+    totals.cacheCreationInputTokens +
+    totals.cacheReadInputTokens;
+}
 
 function toAnthropicMessage(message: ChatMessage): Anthropic.MessageParam {
   return {
@@ -61,6 +90,7 @@ export async function* runChatTurn(params: {
   session: ChatSession;
   user: AppUser;
 }): AsyncGenerator<ChatTurnEvent> {
+  const turnStartedAt = Date.now();
   const { session, user } = params;
   const anthropic = getAnthropic();
   const allowlist = await getPublicTableAllowlist();
@@ -100,6 +130,7 @@ export async function* runChatTurn(params: {
   let totalExecutionMs = 0;
   let lastAuditId: number | null = null;
   let sqlRetries = 0;
+  const tokenUsage = createTokenUsageTotals();
 
   try {
     loop: for (let i = 0; i < MAX_ITERATIONS; i++) {
@@ -124,12 +155,14 @@ export async function* runChatTurn(params: {
       }
 
       const message = await stream.finalMessage();
+      addTokenUsage(tokenUsage, message.usage);
       messages.push({ role: "assistant", content: message.content });
 
       log.info("chat.orchestrator", "model turn", {
         sessionId: session.id,
         iteration: i,
         stopReason: message.stop_reason,
+        tokensUsed: tokenUsage.totalTokens,
       });
 
       // Server-tool loop (web search) paused — re-send to resume.
@@ -283,6 +316,8 @@ export async function* runChatTurn(params: {
     finalText = "Przepraszam, nie udało się przygotować odpowiedzi.";
   }
 
+  const responseMs = Date.now() - turnStartedAt;
+
   const assistant = await createChatMessage({
     chatSessionId: session.id,
     userId: user.id,
@@ -292,7 +327,10 @@ export async function* runChatTurn(params: {
     metadata: {
       tables: [...tablesUsedAll],
       executionMs: totalExecutionMs || null,
+      responseMs,
       queryAuditId: lastAuditId,
+      tokensUsed: tokenUsage.totalTokens || null,
+      tokenUsage: tokenUsage.totalTokens > 0 ? tokenUsage : null,
     },
   });
   await touchChatSession(session.id);
@@ -303,6 +341,8 @@ export async function* runChatTurn(params: {
     tables: [...tablesUsedAll],
     rowCount: lastRowCount,
     executionMs: totalExecutionMs || null,
+    responseMs,
+    tokensUsed: tokenUsage.totalTokens || null,
     finalTextLength: finalText.length,
   });
 
@@ -312,6 +352,9 @@ export async function* runChatTurn(params: {
     tables: [...tablesUsedAll],
     rowCount: lastRowCount,
     executionMs: totalExecutionMs || null,
+    responseMs,
     queryAuditId: lastAuditId,
+    tokensUsed: tokenUsage.totalTokens || null,
+    tokenUsage: tokenUsage.totalTokens > 0 ? tokenUsage : null,
   };
 }

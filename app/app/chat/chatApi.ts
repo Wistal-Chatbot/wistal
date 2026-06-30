@@ -1,6 +1,10 @@
-import type { MessageDto, SessionDto } from "@/lib/api/chat-types";
+import type {
+  MessageDto,
+  SessionDto,
+  TokenUsageMetadata,
+} from "@/lib/api/chat-types";
 
-import type { UiMessage, UiSession, UiSource } from "./types";
+import type { UiMessage, UiMetrics, UiSession, UiSource } from "./types";
 
 /**
  * Client-side access to the chat API plus adapters that map the DB-shaped DTOs
@@ -74,12 +78,19 @@ export interface StreamMeta {
   tables: string[];
   rowCount: number | null;
   executionMs: number | null;
+  responseMs: number | null;
   queryAuditId: number | null;
+  tokensUsed: number | null;
+  tokenUsage: TokenUsageMetadata | null;
 }
 
 export interface StreamHandlers {
   onDelta: (text: string) => void;
-  onMeta: (source: UiSource | null, meta: StreamMeta) => void;
+  onMeta: (
+    source: UiSource | null,
+    metrics: UiMetrics | null,
+    meta: StreamMeta,
+  ) => void;
   onError: (message: string) => void;
 }
 
@@ -129,10 +140,14 @@ export async function streamMessage(
         tables: event.tables ?? [],
         rowCount: event.rowCount ?? null,
         executionMs: event.executionMs ?? null,
+        responseMs: event.responseMs ?? null,
         queryAuditId: event.queryAuditId ?? null,
+        tokensUsed: event.tokensUsed ?? null,
+        tokenUsage: event.tokenUsage ?? null,
       };
       handlers.onMeta(
-        toSource(meta.tables, meta.rowCount, meta.executionMs),
+        toSource(meta.tables, meta.rowCount),
+        toMetrics(meta.responseMs, meta.tokensUsed),
         meta,
       );
     } else if (event.type === "error" && typeof event.error === "string") {
@@ -190,13 +205,36 @@ export function formatSessionTime(iso: string): string {
 export function toSource(
   tables: string[],
   rowCount: number | null,
-  executionMs: number | null,
 ): UiSource | null {
   if (tables.length === 0 && rowCount === null) return null;
   return {
     tables: tables.length > 0 ? tables.join(", ") : "—",
     rows: rowCount !== null ? `${rowCount} wier.` : "—",
-    ms: executionMs !== null ? `${executionMs} ms` : "—",
+  };
+}
+
+const integerFormatter = new Intl.NumberFormat("pl-PL");
+
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${integerFormatter.format(ms)} ms`;
+  return `${(ms / 1000).toLocaleString("pl-PL", {
+    maximumFractionDigits: 1,
+    minimumFractionDigits: 1,
+  })} s`;
+}
+
+function formatTokens(tokens: number): string {
+  return `${integerFormatter.format(tokens)} tok.`;
+}
+
+export function toMetrics(
+  responseMs: number | null,
+  tokensUsed: number | null,
+): UiMetrics | null {
+  if (responseMs === null && tokensUsed === null) return null;
+  return {
+    responseTime: responseMs !== null ? formatDuration(responseMs) : "—",
+    tokens: tokensUsed !== null ? formatTokens(tokensUsed) : "—",
   };
 }
 
@@ -218,7 +256,8 @@ export function dtoToUiMessage(dto: MessageDto): UiMessage {
     role: "bot",
     time,
     content: dto.content,
-    source: toSource(dto.metadata.tables, dto.rowCount, dto.metadata.executionMs),
+    source: toSource(dto.metadata.tables, dto.rowCount),
+    metrics: toMetrics(dto.metadata.responseMs, dto.metadata.tokensUsed),
   };
 }
 

@@ -14,6 +14,14 @@ export const CHAT_SESSION_STATUSES = [
 
 export type ChatSessionStatus = (typeof CHAT_SESSION_STATUSES)[number];
 
+export interface TokenUsageMetadata {
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationInputTokens: number;
+  cacheReadInputTokens: number;
+  totalTokens: number;
+}
+
 export interface SessionDto {
   id: string;
   title: string | null;
@@ -28,8 +36,14 @@ export interface SessionDto {
 export interface MessageMetadata {
   /** ERP tables touched by the answer's query/queries (empty for non-SQL replies). */
   tables: string[];
+  /** SQL execution time only; useful for diagnostics, not shown as total answer time. */
   executionMs: number | null;
+  /** End-to-end AI orchestration time for this assistant answer. */
+  responseMs: number | null;
   queryAuditId: number | null;
+  /** Observability only; not used for billing or hard limits. */
+  tokensUsed: number | null;
+  tokenUsage: TokenUsageMetadata | null;
 }
 
 export interface MessageDto {
