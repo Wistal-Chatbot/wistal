@@ -9,6 +9,7 @@ import {
   touchChatSession,
 } from "@/lib/db/queries";
 import type { AppUser, ChatMessage, ChatSession } from "@/lib/db/schema";
+import { log, preview } from "@/lib/log";
 import { enforceRowLimit } from "@/lib/sql/enforce-row-limit";
 import { executeReadOnly } from "@/lib/sql/execute";
 import { getPublicTableAllowlist } from "@/lib/sql/allowlist";
@@ -77,8 +78,21 @@ export async function* runChatTurn(params: {
   const userInput =
     [...history].reverse().find((m) => m.messageType === "user")?.content ?? "";
 
-  const system = buildSystemPrompt();
+  const system = buildSystemPrompt(session.webSearchEnabled);
   const tools = buildTools(session.webSearchEnabled);
+
+  log.info("chat.orchestrator", "turn start", {
+    sessionId: session.id,
+    userId: user.id,
+    model: CHAT_MODEL,
+    webSearchEnabled: session.webSearchEnabled,
+    toolCount: tools.length,
+    hasWebSearchTool: tools.some(
+      (t) => "type" in t && t.type === "web_search_20260209",
+    ),
+    historyMessages: messages.length,
+    userInput: preview(userInput),
+  });
 
   let finalText = "";
   const tablesUsedAll = new Set<string>();
@@ -112,8 +126,18 @@ export async function* runChatTurn(params: {
       const message = await stream.finalMessage();
       messages.push({ role: "assistant", content: message.content });
 
+      log.info("chat.orchestrator", "model turn", {
+        sessionId: session.id,
+        iteration: i,
+        stopReason: message.stop_reason,
+      });
+
       // Server-tool loop (web search) paused — re-send to resume.
       if (message.stop_reason === "pause_turn") {
+        log.info("chat.orchestrator", "web search running (pause_turn)", {
+          sessionId: session.id,
+          iteration: i,
+        });
         continue;
       }
 
@@ -131,6 +155,9 @@ export async function* runChatTurn(params: {
         const question = (clarification.input as { question?: string }).question;
         finalText =
           question?.trim() || "Czy możesz doprecyzować swoje pytanie?";
+        log.info("chat.orchestrator", "ask_clarification", {
+          sessionId: session.id,
+        });
         break;
       }
 
@@ -151,6 +178,11 @@ export async function* runChatTurn(params: {
 
         if (!validation.ok) {
           sqlRetries += 1;
+          log.warn("chat.orchestrator", "sql rejected by validator", {
+            sessionId: session.id,
+            error: validation.error,
+            sql: preview(sql),
+          });
           await insertQueryAudit({
             chatSessionId: session.id,
             userId: user.id,
@@ -178,6 +210,12 @@ export async function* runChatTurn(params: {
           validation.tablesUsed.forEach((t) => tablesUsedAll.add(t));
           lastRowCount = rows.length;
           totalExecutionMs += executionMs;
+          log.info("chat.orchestrator", "sql executed", {
+            sessionId: session.id,
+            tables: validation.tablesUsed,
+            rowCount: rows.length,
+            executionMs,
+          });
           lastAuditId = await insertQueryAudit({
             chatSessionId: session.id,
             userId: user.id,
@@ -197,6 +235,11 @@ export async function* runChatTurn(params: {
             content: JSON.stringify({ row_count: rows.length, rows }),
           });
         } catch (error) {
+          log.error("chat.orchestrator", "sql execution failed", {
+            sessionId: session.id,
+            error: error instanceof Error ? error.message : String(error),
+            sql: preview(executable),
+          });
           await insertQueryAudit({
             chatSessionId: session.id,
             userId: user.id,
@@ -226,7 +269,12 @@ export async function* runChatTurn(params: {
 
       messages.push({ role: "user", content: toolResults });
     }
-  } catch {
+  } catch (error) {
+    log.error("chat.orchestrator", "turn failed", {
+      sessionId: session.id,
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
     yield { type: "error", error: "Serwis AI jest tymczasowo niedostępny." };
     return;
   }
@@ -248,6 +296,15 @@ export async function* runChatTurn(params: {
     },
   });
   await touchChatSession(session.id);
+
+  log.info("chat.orchestrator", "turn done", {
+    sessionId: session.id,
+    messageId: assistant.id,
+    tables: [...tablesUsedAll],
+    rowCount: lastRowCount,
+    executionMs: totalExecutionMs || null,
+    finalTextLength: finalText.length,
+  });
 
   yield {
     type: "meta",

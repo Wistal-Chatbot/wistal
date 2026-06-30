@@ -9,6 +9,7 @@ import {
   getChatSessionForUser,
   setSessionTitleIfEmpty,
 } from "@/lib/db/queries";
+import { log, preview } from "@/lib/log";
 
 import { sessionIdSchema } from "../../_shared";
 
@@ -33,6 +34,10 @@ export async function POST(
 
   const session = await getChatSessionForUser(sessionId, user.id);
   if (!session) {
+    log.warn("chat.messages", "session not found", {
+      sessionId,
+      userId: user.id,
+    });
     return Response.json({ error: "Nie znaleziono sesji." }, { status: 404 });
   }
 
@@ -51,6 +56,15 @@ export async function POST(
     );
   }
   const { message, stream: useStream = true } = parsed.data;
+
+  log.info("chat.messages", "request", {
+    sessionId: session.id,
+    userId: user.id,
+    webSearchEnabled: session.webSearchEnabled,
+    stream: useStream,
+    messageLength: message.length,
+    message: preview(message),
+  });
 
   // Rate limit: 5/min and 200/day per user (architecture §6).
   const [perMinute, perDay] = await Promise.all([
@@ -73,6 +87,11 @@ export async function POST(
       ? perDay
       : null;
   if (limited) {
+    log.warn("chat.messages", "rate limited", {
+      sessionId: session.id,
+      userId: user.id,
+      retryAfterSeconds: limited.retryAfterSeconds,
+    });
     return Response.json(
       { error: "Zbyt wiele zapytań. Spróbuj ponownie później." },
       {
@@ -85,6 +104,10 @@ export async function POST(
   // Monthly AI token limit (blocks only when live usage is available and over).
   const tokenLimit = await checkMonthlyTokenLimit();
   if (!tokenLimit.allowed) {
+    log.warn("chat.messages", "monthly token limit exceeded", {
+      sessionId: session.id,
+      userId: user.id,
+    });
     return Response.json(
       {
         error: "Miesięczny limit tokenów AI został wyczerpany.",
@@ -115,6 +138,11 @@ export async function POST(
       else if (event.type === "error") error = event.error;
     }
     if (error) {
+      log.error("chat.messages", "turn error (non-stream)", {
+        sessionId: session.id,
+        userId: user.id,
+        error,
+      });
       return Response.json({ error }, { status: 502 });
     }
     return Response.json({ message: { content: text }, meta });
@@ -127,7 +155,12 @@ export async function POST(
         for await (const event of events) {
           controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
         }
-      } catch {
+      } catch (error) {
+        log.error("chat.messages", "stream failed", {
+          sessionId: session.id,
+          userId: user.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
         controller.enqueue(
           encoder.encode(
             `${JSON.stringify({ type: "error", error: "Wystąpił błąd serwera." })}\n`,

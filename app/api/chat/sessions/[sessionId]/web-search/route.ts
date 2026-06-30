@@ -1,5 +1,6 @@
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { setChatSessionWebSearch } from "@/lib/db/queries";
+import { log } from "@/lib/log";
 
 import { serializeSession, sessionIdSchema, webSearchSchema } from "../../_shared";
 
@@ -38,8 +39,18 @@ export async function PATCH(
     parsed.data.enabled,
   );
   if (!session) {
+    log.warn("chat.web-search", "session not found", {
+      sessionId,
+      userId: user.id,
+    });
     return Response.json({ error: "Nie znaleziono sesji." }, { status: 404 });
   }
+
+  log.info("chat.web-search", "toggled", {
+    sessionId: session.id,
+    userId: user.id,
+    enabled: parsed.data.enabled,
+  });
 
   return Response.json({ session: serializeSession(session) });
 }
