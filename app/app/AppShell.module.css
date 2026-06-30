@@ -277,11 +277,37 @@
   background: #eef1f5;
 }
 
+.usageBadge_warning {
+  border-color: #e1b14b;
+  color: #7a5412;
+}
+
+.usageBadge_exceeded {
+  border-color: #d9a196;
+  color: var(--accent-red);
+}
+
+.usageBadge_unavailable {
+  color: var(--text-secondary);
+}
+
 .usageDot {
   background: var(--accent-green);
   border-radius: 50%;
   height: 7px;
   width: 7px;
+}
+
+.usageDot_warning {
+  background: #d6921e;
+}
+
+.usageDot_exceeded {
+  background: var(--accent-red);
+}
+
+.usageDot_unavailable {
+  background: var(--text-muted);
 }
 
 .usagePopover {
@@ -347,10 +373,21 @@
   height: 100%;
 }
 
+.usageFill_warning {
+  background: #d6921e;
+}
+
+.usageFill_exceeded {
+  background: var(--accent-red);
+}
+
+.usageFill_unavailable {
+  background: var(--text-muted);
+}
+
 .usageStats {
   display: flex;
   gap: 10px;
-  margin-bottom: 16px;
 }
 
 .usageStat {
@@ -370,6 +407,13 @@
 .usageStatLabel {
   color: var(--text-muted);
   font-size: 11px;
+}
+
+.usageNote {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+  margin: 14px 0 0;
 }
 
 .content {

@@ -11,5 +11,4 @@ export * from "./tables";
 export * from "./chat";
 export * from "./reports";
 export * from "./admin";
-export * from "./usage";
 export * from "./user";
