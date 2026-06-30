@@ -3,9 +3,22 @@ import { z } from "zod";
 import {
   CHAT_SESSION_STATUSES,
   type MessageDto,
+  type MessageMetadata,
   type SessionDto,
 } from "@/lib/api/chat-types";
 import type { ChatMessage, ChatSession } from "@/lib/db/schema";
+
+/** Normalizes the `chat_messages.metadata` JSONB blob to the wire shape. */
+function readMessageMetadata(value: unknown): MessageMetadata {
+  const meta = (value ?? {}) as Record<string, unknown>;
+  return {
+    tables: Array.isArray(meta.tables)
+      ? meta.tables.filter((t): t is string => typeof t === "string")
+      : [],
+    executionMs: typeof meta.executionMs === "number" ? meta.executionMs : null,
+    queryAuditId: typeof meta.queryAuditId === "number" ? meta.queryAuditId : null,
+  };
+}
 
 /** Maps a DB session row to its public wire shape (drops internal columns). */
 export function serializeSession(row: ChatSession): SessionDto {
@@ -28,6 +41,7 @@ export function serializeMessage(row: ChatMessage): MessageDto {
     content: row.content,
     sqlGenerated: row.sqlGenerated,
     rowCount: row.rowCount,
+    metadata: readMessageMetadata(row.metadata),
     createdAt: row.createdAt.toISOString(),
   };
 }

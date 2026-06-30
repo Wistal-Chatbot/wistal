@@ -25,11 +25,19 @@ export interface SessionDto {
   lastMessageAt: string | null;
 }
 
+export interface MessageMetadata {
+  /** ERP tables touched by the answer's query/queries (empty for non-SQL replies). */
+  tables: string[];
+  executionMs: number | null;
+  queryAuditId: number | null;
+}
+
 export interface MessageDto {
   id: number;
   messageType: string;
   content: string;
   sqlGenerated: string | null;
   rowCount: number | null;
+  metadata: MessageMetadata;
   createdAt: string;
 }
