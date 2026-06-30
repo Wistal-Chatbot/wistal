@@ -1,23 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import {
-  type ChatMessage,
-  type ChatSession,
-  type MessageBlock,
-  type QuickAction,
-  type TextSegment,
-  buildMockReply,
-  quickActions,
-} from "@/lib/mock-data";
-import {
-  createSession,
-  dtoToUiSession,
-  fetchSession,
-  fetchSessions,
-  messagesToUi,
-  setWebSearch as apiSetWebSearch,
-} from "./chatApi";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+
+import { type QuickAction, quickActions } from "@/lib/mock-data";
 import {
   BotIcon,
   CheckIcon,
@@ -26,50 +13,22 @@ import {
   SearchIcon,
   SendIcon,
 } from "../_components/icons";
+import {
+  createSession,
+  dtoToUiSession,
+  fetchSession,
+  fetchSessions,
+  messagesToUi,
+  setWebSearch as apiSetWebSearch,
+  streamMessage,
+} from "./chatApi";
+import type { UiMessage, UiSession } from "./types";
 import styles from "./ChatView.module.css";
 
 type QaForm = { title: string; label: string; placeholder: string; value: string };
 
 function nowTime() {
   return new Date().toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" });
-}
-
-function Segments({ parts }: { parts: TextSegment[] }) {
-  return (
-    <>
-      {parts.map((seg, i) => (
-        <span key={i} style={seg.bold ? { fontWeight: 600 } : undefined}>
-          {seg.text}
-        </span>
-      ))}
-    </>
-  );
-}
-
-function MessageBlocks({ blocks }: { blocks: MessageBlock[] }) {
-  return (
-    <>
-      {blocks.map((block, i) =>
-        block.type === "text" ? (
-          <p className={styles.botText} key={i}>
-            <Segments parts={block.parts} />
-          </p>
-        ) : (
-          <div className={styles.botList} key={i}>
-            {block.bullets.map((b, j) => (
-              <div className={styles.bullet} key={j}>
-                <span className={styles.bulletDash}>–</span>
-                <span>
-                  <span className={styles.bulletLabel}>{b.label}</span>
-                  {b.rest}
-                </span>
-              </div>
-            ))}
-          </div>
-        ),
-      )}
-    </>
-  );
 }
 
 export function ChatView({
@@ -79,17 +38,23 @@ export function ChatView({
   sessionId?: string;
   initialPrompt?: string;
 }) {
-  const [sessions, setSessions] = useState<ChatSession[]>([]);
+  const [sessions, setSessions] = useState<UiSession[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<UiMessage[]>([]);
   const [chatInput, setChatInput] = useState(initialPrompt);
   const [search, setSearch] = useState("");
   const [webSearch, setWebSearch] = useState(false);
+  const [sending, setSending] = useState(false);
   const [qaForm, setQaForm] = useState<QaForm | null>(null);
   const [fbOpenId, setFbOpenId] = useState<string | null>(null);
   const [fbText, setFbText] = useState("");
   const [fbSent, setFbSent] = useState<Record<string, boolean>>({});
-  const msgCounter = useRef(0);
+  const clientSeq = useRef(0);
+
+  function nextId(prefix: string) {
+    clientSeq.current += 1;
+    return `${prefix}-${clientSeq.current}`;
+  }
 
   // Load the session list on mount, then open the requested session (if any).
   useEffect(() => {
@@ -125,7 +90,7 @@ export function ChatView({
     s.title.toLowerCase().includes(search.trim().toLowerCase()),
   );
 
-  async function selectSession(s: ChatSession) {
+  async function selectSession(s: UiSession) {
     setActiveId(s.id);
     setQaForm(null);
     try {
@@ -137,18 +102,12 @@ export function ChatView({
     }
   }
 
-  async function newChat() {
+  function newChat() {
     setQaForm(null);
     setChatInput("");
-    try {
-      const dto = await createSession();
-      setSessions((prev) => [dtoToUiSession(dto), ...prev]);
-      setActiveId(dto.id);
-      setMessages([]);
-      setWebSearch(dto.webSearchEnabled);
-    } catch {
-      // Could not create a session — keep the current view.
-    }
+    setActiveId(null);
+    setMessages([]);
+    setWebSearch(false);
   }
 
   // Persist the web-search toggle on the active session (optimistic + rollback).
@@ -163,15 +122,62 @@ export function ChatView({
     }
   }
 
-  // TODO: persist + AI reply via POST /api/chat/sessions/:id/messages (separate task).
-  function send(text?: string) {
+  async function send(text?: string) {
     const value = (text ?? chatInput).trim();
-    if (!value) return;
+    if (!value || sending) return;
+
+    // Lazily create the session on the first message.
+    let sid = activeId;
+    if (!sid) {
+      try {
+        const dto = await createSession({ webSearchEnabled: webSearch });
+        setSessions((prev) => [dtoToUiSession(dto), ...prev]);
+        setActiveId(dto.id);
+        setWebSearch(dto.webSearchEnabled);
+        sid = dto.id;
+      } catch {
+        return;
+      }
+    }
+
     const time = nowTime();
-    const seq = (msgCounter.current += 1);
-    const userMsg: ChatMessage = { id: `user-${seq}`, role: "user", time, text: value };
-    setMessages((prev) => [...prev, userMsg, buildMockReply(value, time, `bot-${seq}`)]);
+    const userMsg: UiMessage = { id: nextId("user"), role: "user", time, content: value };
+    const botId = nextId("bot");
+    const botMsg: UiMessage = { id: botId, role: "bot", time, content: "", pending: true };
+    setMessages((prev) => [...prev, userMsg, botMsg]);
     setChatInput("");
+    setSending(true);
+
+    // Seed the sidebar title from the first question (matches backend auto-title).
+    const sessionId = sid;
+    setSessions((prev) =>
+      prev.map((s) =>
+        s.id === sessionId && s.title === "Nowa rozmowa"
+          ? { ...s, title: value.slice(0, 60) }
+          : s,
+      ),
+    );
+
+    const patchBot = (patch: Partial<UiMessage>) =>
+      setMessages((prev) =>
+        prev.map((m) => (m.id === botId ? { ...m, ...patch } : m)),
+      );
+
+    try {
+      await streamMessage(sessionId, value, {
+        onDelta: (delta) =>
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === botId ? { ...m, content: m.content + delta } : m,
+            ),
+          ),
+        onMeta: (source) => patchBot({ source, pending: false }),
+        onError: (msg) => patchBot({ content: msg, source: null, pending: false }),
+      });
+    } finally {
+      patchBot({ pending: false });
+      setSending(false);
+    }
   }
 
   function onQuickAction(action: QuickAction) {
@@ -183,13 +189,13 @@ export function ChatView({
         value: "",
       });
     } else {
-      send(action.prompt ?? action.name);
+      void send(action.prompt ?? action.name);
     }
   }
 
   function submitQa() {
     if (!qaForm) return;
-    send(`${qaForm.title} — ${qaForm.value.trim() || "(wszyscy)"}`);
+    void send(`${qaForm.title} — ${qaForm.value.trim() || "(wszyscy)"}`);
     setQaForm(null);
   }
 
@@ -232,9 +238,7 @@ export function ChatView({
               <div className={styles.sessionTitle}>{s.title}</div>
               <div className={styles.sessionMeta}>
                 <span className={styles.sessionTime}>{s.time}</span>
-                <span className={s.tag === "akcja" ? styles.tagAkcja : styles.tagChat}>
-                  {s.tag === "akcja" ? "AKCJA AI" : "CHAT"}
-                </span>
+                <span className={styles.tagChat}>CHAT</span>
               </div>
             </button>
           ))}
@@ -265,32 +269,47 @@ export function ChatView({
                   </div>
                   <div className={styles.botBody}>
                     <div className={styles.botBubble}>
-                      <MessageBlocks blocks={msg.blocks ?? []} />
-                    </div>
-                    <div className={styles.botMeta}>
-                      <span>Źródło danych:</span>
-                      <span className={styles.metaPill}>{msg.source?.tables}</span>
-                      <span className={styles.metaMono}>· Wiersze: {msg.source?.rows}</span>
-                      <span className={styles.metaMono}>· Czas zapytania: {msg.source?.ms}</span>
-                      <div className={styles.spacer} />
-                      {fbSent[msg.id] ? (
-                        <span className={styles.fbDone}>
-                          <CheckIcon size={13} />
-                          Dziękujemy za feedback
-                        </span>
-                      ) : fbOpenId === msg.id ? null : (
-                        <button
-                          type="button"
-                          className={styles.fbOpen}
-                          onClick={() => {
-                            setFbOpenId(msg.id);
-                            setFbText("");
-                          }}
-                        >
-                          Dodaj feedback
-                        </button>
+                      {msg.pending && !msg.content ? (
+                        <span className={styles.typing}>Generuję odpowiedź…</span>
+                      ) : (
+                        <div className={styles.markdown}>
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                            {msg.content}
+                          </ReactMarkdown>
+                        </div>
                       )}
                     </div>
+
+                    {!msg.pending ? (
+                      <div className={styles.botMeta}>
+                        {msg.source ? (
+                          <>
+                            <span>Źródło danych:</span>
+                            <span className={styles.metaPill}>{msg.source.tables}</span>
+                            <span className={styles.metaMono}>· Wiersze: {msg.source.rows}</span>
+                            <span className={styles.metaMono}>· Czas zapytania: {msg.source.ms}</span>
+                          </>
+                        ) : null}
+                        <div className={styles.spacer} />
+                        {fbSent[msg.id] ? (
+                          <span className={styles.fbDone}>
+                            <CheckIcon size={13} />
+                            Dziękujemy za feedback
+                          </span>
+                        ) : fbOpenId === msg.id ? null : (
+                          <button
+                            type="button"
+                            className={styles.fbOpen}
+                            onClick={() => {
+                              setFbOpenId(msg.id);
+                              setFbText("");
+                            }}
+                          >
+                            Dodaj feedback
+                          </button>
+                        )}
+                      </div>
+                    ) : null}
 
                     {fbOpenId === msg.id ? (
                       <div className={styles.fbBox}>
@@ -328,7 +347,7 @@ export function ChatView({
                 </div>
               ) : (
                 <div className={styles.userRow} key={msg.id}>
-                  <div className={styles.userBubble}>{msg.text}</div>
+                  <div className={styles.userBubble}>{msg.content}</div>
                   <div className={styles.userTime}>{msg.time}</div>
                 </div>
               ),
@@ -377,6 +396,7 @@ export function ChatView({
                   key={action.key}
                   className={styles.quickPill}
                   onClick={() => onQuickAction(action)}
+                  disabled={sending}
                 >
                   {action.input ? <span className={styles.quickCaret}>▼</span> : null}
                   {action.name}
@@ -400,14 +420,20 @@ export function ChatView({
                 className={styles.chatInput}
                 placeholder={'Zapytaj np. "Jaki jest stan magazynowy BBC003?"'}
                 value={chatInput}
+                disabled={sending}
                 onChange={(e) => setChatInput(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") send();
+                  if (e.key === "Enter") void send();
                 }}
               />
-              <button type="button" className={styles.sendButton} onClick={() => send()}>
+              <button
+                type="button"
+                className={styles.sendButton}
+                onClick={() => void send()}
+                disabled={sending}
+              >
                 <SendIcon size={16} />
-                Wyślij
+                {sending ? "Wysyłanie…" : "Wyślij"}
               </button>
             </div>
           </div>
