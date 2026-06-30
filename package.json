@@ -13,14 +13,18 @@
     "db:verify": "npx tsx lib/db/verify.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.107.0",
     "@upstash/redis": "^1.38.0",
     "dotenv": "^17.4.2",
     "drizzle-orm": "^0.45.2",
     "jose": "^6.2.3",
     "next": "16.2.4",
+    "node-sql-parser": "^5.4.0",
     "postgres": "^3.4.9",
     "react": "19.2.4",
     "react-dom": "19.2.4",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
     "resend": "^6.16.0",
     "server-only": "^0.0.1",
     "zod": "^4.4.3"

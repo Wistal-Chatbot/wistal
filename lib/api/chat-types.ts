@@ -1,0 +1,57 @@
+/**
+ * Wire shapes for the chat session API. Kept free of `server-only`/`db` imports so
+ * both the route handlers (serializers) and the client (`app/app/chat/chatApi.ts`
+ * adapters) can share these types without pulling server code into the bundle.
+ */
+
+/** Allowed `chat_sessions.status` values — mirrors the DB check constraint. */
+export const CHAT_SESSION_STATUSES = [
+  "active",
+  "completed",
+  "failed",
+  "archived",
+] as const;
+
+export type ChatSessionStatus = (typeof CHAT_SESSION_STATUSES)[number];
+
+export interface TokenUsageMetadata {
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationInputTokens: number;
+  cacheReadInputTokens: number;
+  totalTokens: number;
+}
+
+export interface SessionDto {
+  id: string;
+  title: string | null;
+  status: string;
+  webSearchEnabled: boolean;
+  /** ISO-8601 timestamps. */
+  createdAt: string;
+  updatedAt: string;
+  lastMessageAt: string | null;
+}
+
+export interface MessageMetadata {
+  /** ERP tables touched by the answer's query/queries (empty for non-SQL replies). */
+  tables: string[];
+  /** SQL execution time only; useful for diagnostics, not shown as total answer time. */
+  executionMs: number | null;
+  /** End-to-end AI orchestration time for this assistant answer. */
+  responseMs: number | null;
+  queryAuditId: number | null;
+  /** Observability only; not used for billing or hard limits. */
+  tokensUsed: number | null;
+  tokenUsage: TokenUsageMetadata | null;
+}
+
+export interface MessageDto {
+  id: number;
+  messageType: string;
+  content: string;
+  sqlGenerated: string | null;
+  rowCount: number | null;
+  metadata: MessageMetadata;
+  createdAt: string;
+}

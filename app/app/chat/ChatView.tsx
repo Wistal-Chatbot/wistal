@@ -1,68 +1,35 @@
 "use client";
 
-import { useRef, useState } from "react";
-import {
-  type ChatMessage,
-  type ChatSession,
-  type MessageBlock,
-  type QuickAction,
-  type TextSegment,
-  buildMockReply,
-  chatSessions,
-  quickActions,
-} from "@/lib/mock-data";
+import { useEffect, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+
+import { type QuickAction, quickActions } from "@/lib/mock-data";
 import {
   BotIcon,
   CheckIcon,
+  CopyIcon,
   MenuIcon,
   PlusIcon,
   SearchIcon,
   SendIcon,
 } from "../_components/icons";
+import {
+  createSession,
+  dtoToUiSession,
+  fetchSession,
+  fetchSessions,
+  messagesToUi,
+  setWebSearch as apiSetWebSearch,
+  streamMessage,
+} from "./chatApi";
+import type { UiMessage, UiSession } from "./types";
 import styles from "./ChatView.module.css";
 
 type QaForm = { title: string; label: string; placeholder: string; value: string };
 
 function nowTime() {
   return new Date().toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" });
-}
-
-function Segments({ parts }: { parts: TextSegment[] }) {
-  return (
-    <>
-      {parts.map((seg, i) => (
-        <span key={i} style={seg.bold ? { fontWeight: 600 } : undefined}>
-          {seg.text}
-        </span>
-      ))}
-    </>
-  );
-}
-
-function MessageBlocks({ blocks }: { blocks: MessageBlock[] }) {
-  return (
-    <>
-      {blocks.map((block, i) =>
-        block.type === "text" ? (
-          <p className={styles.botText} key={i}>
-            <Segments parts={block.parts} />
-          </p>
-        ) : (
-          <div className={styles.botList} key={i}>
-            {block.bullets.map((b, j) => (
-              <div className={styles.bullet} key={j}>
-                <span className={styles.bulletDash}>–</span>
-                <span>
-                  <span className={styles.bulletLabel}>{b.label}</span>
-                  {b.rest}
-                </span>
-              </div>
-            ))}
-          </div>
-        ),
-      )}
-    </>
-  );
 }
 
 export function ChatView({
@@ -72,48 +39,155 @@ export function ChatView({
   sessionId?: string;
   initialPrompt?: string;
 }) {
-  const startSession =
-    chatSessions.find((s) => s.id === sessionId) ?? chatSessions[0];
-
-  const [activeId, setActiveId] = useState<string | null>(startSession?.id ?? null);
-  const [messages, setMessages] = useState<ChatMessage[]>(startSession?.messages ?? []);
+  const [sessions, setSessions] = useState<UiSession[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<UiMessage[]>([]);
   const [chatInput, setChatInput] = useState(initialPrompt);
   const [search, setSearch] = useState("");
+  const [historyOpen, setHistoryOpen] = useState(true);
   const [webSearch, setWebSearch] = useState(false);
+  const [sending, setSending] = useState(false);
   const [qaForm, setQaForm] = useState<QaForm | null>(null);
   const [fbOpenId, setFbOpenId] = useState<string | null>(null);
   const [fbText, setFbText] = useState("");
   const [fbSent, setFbSent] = useState<Record<string, boolean>>({});
-  const msgCounter = useRef(0);
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
+  const clientSeq = useRef(0);
+  const copyResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const activeSession = chatSessions.find((s) => s.id === activeId) ?? null;
+  function nextId(prefix: string) {
+    clientSeq.current += 1;
+    return `${prefix}-${clientSeq.current}`;
+  }
+
+  useEffect(() => {
+    return () => {
+      if (copyResetTimer.current) clearTimeout(copyResetTimer.current);
+    };
+  }, []);
+
+  // Load the session list on mount, then open the requested session (if any).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const list = await fetchSessions();
+        if (cancelled) return;
+        setSessions(list.map(dtoToUiSession));
+
+        if (!sessionId) return;
+        const requested = list.find((s) => s.id === sessionId);
+        if (!requested) return;
+
+        const detail = await fetchSession(requested.id);
+        if (cancelled) return;
+        setActiveId(detail.session.id);
+        setMessages(messagesToUi(detail.messages));
+        setWebSearch(detail.session.webSearchEnabled);
+      } catch {
+        // Leave the list empty on failure; the empty-state copy still applies.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId]);
+
+  const activeSession = sessions.find((s) => s.id === activeId) ?? null;
   const activeTitle = activeSession?.title ?? "Nowa rozmowa";
 
-  const visibleSessions = chatSessions.filter((s) =>
+  const visibleSessions = sessions.filter((s) =>
     s.title.toLowerCase().includes(search.trim().toLowerCase()),
   );
 
-  function selectSession(s: ChatSession) {
+  async function selectSession(s: UiSession) {
     setActiveId(s.id);
-    setMessages(s.messages);
     setQaForm(null);
+    try {
+      const { session, messages: loaded } = await fetchSession(s.id);
+      setMessages(messagesToUi(loaded));
+      setWebSearch(session.webSearchEnabled);
+    } catch {
+      setMessages([]);
+    }
   }
 
   function newChat() {
+    setQaForm(null);
+    setChatInput("");
     setActiveId(null);
     setMessages([]);
-    setChatInput("");
-    setQaForm(null);
+    setWebSearch(false);
   }
 
-  function send(text?: string) {
+  // Persist the web-search toggle on the active session (optimistic + rollback).
+  async function toggleWebSearch() {
+    const next = !webSearch;
+    setWebSearch(next);
+    if (!activeId) return;
+    try {
+      await apiSetWebSearch(activeId, next);
+    } catch {
+      setWebSearch(!next);
+    }
+  }
+
+  async function send(text?: string) {
     const value = (text ?? chatInput).trim();
-    if (!value) return;
+    if (!value || sending) return;
+
+    // Lazily create the session on the first message.
+    let sid = activeId;
+    if (!sid) {
+      try {
+        const dto = await createSession({ webSearchEnabled: webSearch });
+        setSessions((prev) => [dtoToUiSession(dto), ...prev]);
+        setActiveId(dto.id);
+        setWebSearch(dto.webSearchEnabled);
+        sid = dto.id;
+      } catch {
+        return;
+      }
+    }
+
     const time = nowTime();
-    const seq = (msgCounter.current += 1);
-    const userMsg: ChatMessage = { id: `user-${seq}`, role: "user", time, text: value };
-    setMessages((prev) => [...prev, userMsg, buildMockReply(value, time, `bot-${seq}`)]);
+    const userMsg: UiMessage = { id: nextId("user"), role: "user", time, content: value };
+    const botId = nextId("bot");
+    const botMsg: UiMessage = { id: botId, role: "bot", time, content: "", pending: true };
+    setMessages((prev) => [...prev, userMsg, botMsg]);
     setChatInput("");
+    setSending(true);
+
+    // Seed the sidebar title from the first question (matches backend auto-title).
+    const sessionId = sid;
+    setSessions((prev) =>
+      prev.map((s) =>
+        s.id === sessionId && s.title === "Nowa rozmowa"
+          ? { ...s, title: value.slice(0, 60) }
+          : s,
+      ),
+    );
+
+    const patchBot = (patch: Partial<UiMessage>) =>
+      setMessages((prev) =>
+        prev.map((m) => (m.id === botId ? { ...m, ...patch } : m)),
+      );
+
+    try {
+      await streamMessage(sessionId, value, {
+        onDelta: (delta) =>
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === botId ? { ...m, content: m.content + delta } : m,
+            ),
+          ),
+        onMeta: (source, metrics) => patchBot({ source, metrics, pending: false }),
+        onError: (msg) => patchBot({ content: msg, source: null, pending: false }),
+      });
+    } finally {
+      patchBot({ pending: false });
+      setSending(false);
+    }
   }
 
   function onQuickAction(action: QuickAction) {
@@ -125,13 +199,13 @@ export function ChatView({
         value: "",
       });
     } else {
-      send(action.prompt ?? action.name);
+      void send(action.prompt ?? action.name);
     }
   }
 
   function submitQa() {
     if (!qaForm) return;
-    send(`${qaForm.title} — ${qaForm.value.trim() || "(wszyscy)"}`);
+    void send(`${qaForm.title} — ${qaForm.value.trim() || "(wszyscy)"}`);
     setQaForm(null);
   }
 
@@ -141,11 +215,40 @@ export function ChatView({
     setFbText("");
   }
 
+  async function copyMarkdown(message: UiMessage) {
+    if (!message.content) return;
+
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(message.content);
+      } else {
+        const textarea = document.createElement("textarea");
+        textarea.value = message.content;
+        textarea.setAttribute("readonly", "");
+        textarea.style.left = "-9999px";
+        textarea.style.position = "fixed";
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textarea);
+      }
+
+      setCopiedMessageId(message.id);
+      if (copyResetTimer.current) clearTimeout(copyResetTimer.current);
+      copyResetTimer.current = setTimeout(() => setCopiedMessageId(null), 1600);
+    } catch {
+      // Clipboard access can be blocked by the browser; leave the UI unchanged.
+    }
+  }
+
   const enabledActions = quickActions.filter((a) => a.enabled);
 
   return (
     <div className={styles.chat}>
-      <aside className={styles.history}>
+      <aside
+        id="chat-history-panel"
+        className={`${styles.history} ${historyOpen ? styles.historyOpen : styles.historyClosed}`}
+      >
         <div className={styles.historyHead}>
           <button type="button" className={styles.newChat} onClick={newChat}>
             <span className={styles.newChatPlus}>+</span>
@@ -174,9 +277,7 @@ export function ChatView({
               <div className={styles.sessionTitle}>{s.title}</div>
               <div className={styles.sessionMeta}>
                 <span className={styles.sessionTime}>{s.time}</span>
-                <span className={s.tag === "akcja" ? styles.tagAkcja : styles.tagChat}>
-                  {s.tag === "akcja" ? "AKCJA AI" : "CHAT"}
-                </span>
+                <span className={styles.tagChat}>CHAT</span>
               </div>
             </button>
           ))}
@@ -185,9 +286,16 @@ export function ChatView({
 
       <div className={styles.column}>
         <div className={styles.columnHead}>
-          <span className={styles.menuIcon}>
-            <MenuIcon size={20} />
-          </span>
+          <button
+            type="button"
+            className={styles.historyToggle}
+            aria-controls="chat-history-panel"
+            aria-expanded={historyOpen}
+            aria-label={historyOpen ? "Ukryj historię rozmów" : "Pokaż historię rozmów"}
+            onClick={() => setHistoryOpen((open) => !open)}
+          >
+            <MenuIcon size={18} />
+          </button>
           <div className={styles.columnTitle}>{activeTitle}</div>
         </div>
 
@@ -207,32 +315,79 @@ export function ChatView({
                   </div>
                   <div className={styles.botBody}>
                     <div className={styles.botBubble}>
-                      <MessageBlocks blocks={msg.blocks ?? []} />
-                    </div>
-                    <div className={styles.botMeta}>
-                      <span>Źródło danych:</span>
-                      <span className={styles.metaPill}>{msg.source?.tables}</span>
-                      <span className={styles.metaMono}>· Wiersze: {msg.source?.rows}</span>
-                      <span className={styles.metaMono}>· Czas zapytania: {msg.source?.ms}</span>
-                      <div className={styles.spacer} />
-                      {fbSent[msg.id] ? (
-                        <span className={styles.fbDone}>
-                          <CheckIcon size={13} />
-                          Dziękujemy za feedback
-                        </span>
-                      ) : fbOpenId === msg.id ? null : (
-                        <button
-                          type="button"
-                          className={styles.fbOpen}
-                          onClick={() => {
-                            setFbOpenId(msg.id);
-                            setFbText("");
-                          }}
-                        >
-                          Dodaj feedback
-                        </button>
+                      {msg.pending && !msg.content ? (
+                        <span className={styles.typing}>Generuję odpowiedź…</span>
+                      ) : (
+                        <div className={styles.markdown}>
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                            {msg.content}
+                          </ReactMarkdown>
+                        </div>
                       )}
                     </div>
+
+                    {!msg.pending ? (
+                      <div className={styles.botMeta}>
+                        {msg.source ? (
+                          <>
+                            <span>Źródło danych:</span>
+                            <span className={styles.metaPill}>{msg.source.tables}</span>
+                            <span className={styles.metaMono}>· Wiersze: {msg.source.rows}</span>
+                          </>
+                        ) : null}
+                        {msg.metrics ? (
+                          <>
+                            <span className={styles.metaMono}>
+                              · Czas odpowiedzi: {msg.metrics.responseTime}
+                            </span>
+                            <span className={styles.metaMono}>
+                              · Tokeny: {msg.metrics.tokens}
+                            </span>
+                          </>
+                        ) : null}
+                        <div className={styles.spacer} />
+                        <button
+                          type="button"
+                          className={`${styles.copyMarkdown} ${
+                            copiedMessageId === msg.id ? styles.copyMarkdownCopied : ""
+                          }`}
+                          aria-label={
+                            copiedMessageId === msg.id
+                              ? "Skopiowano Markdown odpowiedzi"
+                              : "Kopiuj Markdown odpowiedzi"
+                          }
+                          title={
+                            copiedMessageId === msg.id
+                              ? "Skopiowano"
+                              : "Kopiuj Markdown odpowiedzi"
+                          }
+                          onClick={() => void copyMarkdown(msg)}
+                        >
+                          {copiedMessageId === msg.id ? (
+                            <CheckIcon size={14} />
+                          ) : (
+                            <CopyIcon size={14} />
+                          )}
+                        </button>
+                        {fbSent[msg.id] ? (
+                          <span className={styles.fbDone}>
+                            <CheckIcon size={13} />
+                            Dziękujemy za feedback
+                          </span>
+                        ) : fbOpenId === msg.id ? null : (
+                          <button
+                            type="button"
+                            className={styles.fbOpen}
+                            onClick={() => {
+                              setFbOpenId(msg.id);
+                              setFbText("");
+                            }}
+                          >
+                            Dodaj feedback
+                          </button>
+                        )}
+                      </div>
+                    ) : null}
 
                     {fbOpenId === msg.id ? (
                       <div className={styles.fbBox}>
@@ -270,7 +425,7 @@ export function ChatView({
                 </div>
               ) : (
                 <div className={styles.userRow} key={msg.id}>
-                  <div className={styles.userBubble}>{msg.text}</div>
+                  <div className={styles.userBubble}>{msg.content}</div>
                   <div className={styles.userTime}>{msg.time}</div>
                 </div>
               ),
@@ -313,12 +468,21 @@ export function ChatView({
 
             <div className={styles.quickBar}>
               <span className={styles.quickLabel}>SZYBKIE AKCJE</span>
+              <button
+                type="button"
+                className={webSearch ? styles.webToggleOn : styles.webToggle}
+                onClick={toggleWebSearch}
+              >
+                <span className={styles.webGlobe}>🌐</span>
+                Wyszukiwanie w internecie: {webSearch ? "WŁ" : "WYŁ"}
+              </button>
               {enabledActions.map((action) => (
                 <button
                   type="button"
                   key={action.key}
                   className={styles.quickPill}
                   onClick={() => onQuickAction(action)}
+                  disabled={sending}
                 >
                   {action.input ? <span className={styles.quickCaret}>▼</span> : null}
                   {action.name}
@@ -326,30 +490,25 @@ export function ChatView({
               ))}
             </div>
 
-            <div className={styles.webToggleRow}>
-              <button
-                type="button"
-                className={webSearch ? styles.webToggleOn : styles.webToggle}
-                onClick={() => setWebSearch((v) => !v)}
-              >
-                <span className={styles.webGlobe}>🌐</span>
-                Wyszukiwanie w internecie: {webSearch ? "WŁ" : "WYŁ"}
-              </button>
-            </div>
-
             <div className={styles.inputRow}>
               <input
                 className={styles.chatInput}
                 placeholder={'Zapytaj np. "Jaki jest stan magazynowy BBC003?"'}
                 value={chatInput}
+                disabled={sending}
                 onChange={(e) => setChatInput(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") send();
+                  if (e.key === "Enter") void send();
                 }}
               />
-              <button type="button" className={styles.sendButton} onClick={() => send()}>
+              <button
+                type="button"
+                className={styles.sendButton}
+                onClick={() => void send()}
+                disabled={sending}
+              >
                 <SendIcon size={16} />
-                Wyślij
+                {sending ? "Wysyłanie…" : "Wyślij"}
               </button>
             </div>
           </div>

@@ -1,7 +1,7 @@
-import dotenv from "dotenv";
+import { loadEnvConfig } from "@next/env";
 import postgres from "postgres";
 
-dotenv.config();
+loadEnvConfig(process.cwd());
 
 const databaseUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL;
 
