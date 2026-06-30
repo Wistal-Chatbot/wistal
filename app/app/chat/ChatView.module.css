@@ -416,6 +416,30 @@
   flex: 1;
 }
 
+.copyMarkdown {
+  align-items: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--placeholder);
+  cursor: pointer;
+  display: inline-flex;
+  height: 28px;
+  justify-content: center;
+  padding: 0;
+  width: 28px;
+}
+
+.copyMarkdown:hover {
+  background: #eef1f5;
+  border-color: var(--border-soft);
+  color: var(--primary);
+}
+
+.copyMarkdownCopied {
+  color: #1f6b4a;
+}
+
 .fbDone {
   align-items: center;
   color: #1f6b4a;

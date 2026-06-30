@@ -178,6 +178,15 @@ export function DownloadIcon(props: IconProps) {
   );
 }
 
+export function CopyIcon(props: IconProps) {
+  return (
+    <Svg strokeWidth={1.6} {...props}>
+      <rect x="6" y="5" width="9" height="10" rx="1.5" />
+      <path d="M3 12.5 V4.5 A1.5 1.5 0 0 1 4.5 3 H12" />
+    </Svg>
+  );
+}
+
 export function CommentIcon(props: IconProps) {
   return (
     <Svg strokeWidth={1.6} {...props}>

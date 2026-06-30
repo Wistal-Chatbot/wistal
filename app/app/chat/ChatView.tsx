@@ -8,6 +8,7 @@ import { type QuickAction, quickActions } from "@/lib/mock-data";
 import {
   BotIcon,
   CheckIcon,
+  CopyIcon,
   MenuIcon,
   PlusIcon,
   SearchIcon,
@@ -50,12 +51,20 @@ export function ChatView({
   const [fbOpenId, setFbOpenId] = useState<string | null>(null);
   const [fbText, setFbText] = useState("");
   const [fbSent, setFbSent] = useState<Record<string, boolean>>({});
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const clientSeq = useRef(0);
+  const copyResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   function nextId(prefix: string) {
     clientSeq.current += 1;
     return `${prefix}-${clientSeq.current}`;
   }
+
+  useEffect(() => {
+    return () => {
+      if (copyResetTimer.current) clearTimeout(copyResetTimer.current);
+    };
+  }, []);
 
   // Load the session list on mount, then open the requested session (if any).
   useEffect(() => {
@@ -206,6 +215,32 @@ export function ChatView({
     setFbText("");
   }
 
+  async function copyMarkdown(message: UiMessage) {
+    if (!message.content) return;
+
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(message.content);
+      } else {
+        const textarea = document.createElement("textarea");
+        textarea.value = message.content;
+        textarea.setAttribute("readonly", "");
+        textarea.style.left = "-9999px";
+        textarea.style.position = "fixed";
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textarea);
+      }
+
+      setCopiedMessageId(message.id);
+      if (copyResetTimer.current) clearTimeout(copyResetTimer.current);
+      copyResetTimer.current = setTimeout(() => setCopiedMessageId(null), 1600);
+    } catch {
+      // Clipboard access can be blocked by the browser; leave the UI unchanged.
+    }
+  }
+
   const enabledActions = quickActions.filter((a) => a.enabled);
 
   return (
@@ -311,6 +346,29 @@ export function ChatView({
                           </>
                         ) : null}
                         <div className={styles.spacer} />
+                        <button
+                          type="button"
+                          className={`${styles.copyMarkdown} ${
+                            copiedMessageId === msg.id ? styles.copyMarkdownCopied : ""
+                          }`}
+                          aria-label={
+                            copiedMessageId === msg.id
+                              ? "Skopiowano Markdown odpowiedzi"
+                              : "Kopiuj Markdown odpowiedzi"
+                          }
+                          title={
+                            copiedMessageId === msg.id
+                              ? "Skopiowano"
+                              : "Kopiuj Markdown odpowiedzi"
+                          }
+                          onClick={() => void copyMarkdown(msg)}
+                        >
+                          {copiedMessageId === msg.id ? (
+                            <CheckIcon size={14} />
+                          ) : (
+                            <CopyIcon size={14} />
+                          )}
+                        </button>
                         {fbSent[msg.id] ? (
                           <span className={styles.fbDone}>
                             <CheckIcon size={13} />
