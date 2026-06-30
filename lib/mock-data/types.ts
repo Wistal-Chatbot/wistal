@@ -188,11 +188,6 @@ export interface AdminUser {
 
 // ── AI usage ────────────────────────────────────────────────────────────────
 
-export interface UsageTopUser {
-  name: string;
-  tokens: string;
-}
-
 export interface AiUsage {
   percent: number;
   period: string;
@@ -200,7 +195,6 @@ export interface AiUsage {
   totalTokens: string;
   queriesToday: string;
   monthlyCost: string;
-  topUsers: UsageTopUser[];
 }
 
 // ── Current user ─────────────────────────────────────────────────────────────

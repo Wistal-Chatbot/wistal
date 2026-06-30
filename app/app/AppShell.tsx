@@ -175,15 +175,6 @@ export function AppShell({ children }: { children: ReactNode }) {
                     <div className={styles.usageStatLabel}>Koszt mies.</div>
                   </div>
                 </div>
-                <div className={styles.usageListLabel}>NAJAKTYWNIEJSI</div>
-                <div className={styles.usageList}>
-                  {aiUsage.topUsers.map((u) => (
-                    <div className={styles.usageListItem} key={u.name}>
-                      <span>{u.name}</span>
-                      <span className={styles.usageListTokens}>{u.tokens}</span>
-                    </div>
-                  ))}
-                </div>
               </div>
             ) : null}
           </div>
