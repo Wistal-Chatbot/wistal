@@ -91,3 +91,88 @@ export function resolvePromptTemplate(
   }
   return trimmed ? `${template} ${trimmed}`.trim() : template.trim();
 }
+
+// ── Admin (CRUD) ─────────────────────────────────────────────────────────────
+
+/** Full admin-facing view of a quick action (admins may see the prompt + query). */
+export interface AdminQuickActionDto {
+  id: number;
+  key: string;
+  namePl: string;
+  descriptionPl: string | null;
+  category: string | null;
+  promptTemplate: string;
+  customInput: CustomInput;
+  usesDatabase: boolean;
+  usesWebSearch: boolean;
+  displayOrder: number;
+  isEnabled: boolean;
+}
+
+/** Payload the admin form sends when creating/updating a quick action. */
+export interface QuickActionPayload {
+  key: string;
+  namePl: string;
+  promptTemplate: string;
+  customInput: CustomInput;
+  usesDatabase: boolean;
+  usesWebSearch: boolean;
+  displayOrder: number;
+  isEnabled: boolean;
+}
+
+const keySchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(64)
+  .regex(/^[a-z0-9_]+$/, "Klucz może zawierać tylko małe litery, cyfry i podkreślenia.");
+
+/** Validates a create request body. `customInput` defaults to `{}` (no input). */
+export const adminQuickActionCreateSchema = z.object({
+  key: keySchema,
+  namePl: z.string().trim().min(1).max(120),
+  descriptionPl: z.string().trim().max(500).nullish(),
+  category: z.string().trim().max(80).nullish(),
+  promptTemplate: z.string().trim().min(1).max(4000),
+  customInput: customInputSchema.optional(),
+  usesDatabase: z.boolean().optional(),
+  usesWebSearch: z.boolean().optional(),
+  displayOrder: z.number().int().min(0).max(9999).optional(),
+  isEnabled: z.boolean().optional(),
+});
+
+/** Update accepts the same fields, all optional (only sent keys are changed). */
+export const adminQuickActionUpdateSchema = adminQuickActionCreateSchema.partial();
+
+/**
+ * Maps a stored quick_actions row to the admin DTO. Accepts any object with the
+ * needed fields (the Drizzle row has extras) so this file stays free of db imports.
+ */
+export function serializeAdminQuickAction(row: {
+  id: number;
+  key: string;
+  namePl: string;
+  descriptionPl: string | null;
+  category: string | null;
+  promptTemplate: string;
+  customInput: unknown;
+  usesDatabase: boolean;
+  usesWebSearch: boolean;
+  displayOrder: number;
+  isEnabled: boolean;
+}): AdminQuickActionDto {
+  return {
+    id: row.id,
+    key: row.key,
+    namePl: row.namePl,
+    descriptionPl: row.descriptionPl,
+    category: row.category,
+    promptTemplate: row.promptTemplate,
+    customInput: parseCustomInput(row.customInput),
+    usesDatabase: row.usesDatabase,
+    usesWebSearch: row.usesWebSearch,
+    displayOrder: row.displayOrder,
+    isEnabled: row.isEnabled,
+  };
+}
