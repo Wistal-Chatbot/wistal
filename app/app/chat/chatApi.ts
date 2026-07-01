@@ -64,6 +64,18 @@ export async function fetchSession(
   );
 }
 
+/** Renames the session (persists the new title on the chat session row). */
+export async function updateSessionTitle(
+  sessionId: string,
+  title: string,
+): Promise<SessionDto> {
+  const data = await apiFetch<{ session: SessionDto }>(
+    `/api/chat/sessions/${sessionId}`,
+    { method: "PATCH", body: JSON.stringify({ title }) },
+  );
+  return data.session;
+}
+
 export async function setWebSearch(
   sessionId: string,
   enabled: boolean,
