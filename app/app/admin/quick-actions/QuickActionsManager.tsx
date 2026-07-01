@@ -70,7 +70,7 @@ const HELP = {
   fetchColumns:
     "Kolumny pobierane dla wybranego rekordu i przekazywane AI. Domyślnie wszystkie — odznacz zbędne.",
   searchColumns:
-    "1–2 kolumny, po których działa wyszukiwarka w czacie (i które widać w wynikach). Mniej kolumn = szybszy search.",
+    "Identyfikator jest zawsze przeszukiwany (i się nie odznacza). Dodatkowo wybierz do 2 kolumn (np. nazwa), po których działa wyszukiwarka w czacie i które widać w wynikach.",
   idColumn:
     "Kolumna identyfikująca rekord (klucz), używana w zapytaniu. Wykrywana automatycznie z klucza głównego tabeli.",
   required: "Czy użytkownik musi podać wartość, by uruchomić akcję.",
@@ -161,7 +161,6 @@ function validate(form: FormState): string | null {
     if (!form.table) return "Wybierz tabelę.";
     if (!form.idColumn) return "Brak kolumny identyfikatora dla tej tabeli.";
     if (form.fetchColumns.length === 0) return "Zaznacz co najmniej jedną kolumnę do pobrania.";
-    if (form.searchColumns.length === 0) return "Wybierz co najmniej jedną kolumnę wyszukiwania.";
   }
   return null;
 }
@@ -245,7 +244,8 @@ export function QuickActionsManager() {
       table,
       idColumn: pk,
       fetchColumns: cols,
-      searchColumns: pk ? [pk] : cols.slice(0, 1),
+      // The id is always searchable; these are the extra columns (max 2).
+      searchColumns: [],
     }));
   }
 
@@ -260,6 +260,8 @@ export function QuickActionsManager() {
 
   function toggleSearchColumn(col: string) {
     setForm((prev) => {
+      // The id is always searchable and is never stored in searchColumns.
+      if (col === prev.idColumn) return prev;
       if (prev.searchColumns.includes(col)) {
         return { ...prev, searchColumns: prev.searchColumns.filter((c) => c !== col) };
       }
@@ -526,20 +528,27 @@ export function QuickActionsManager() {
                 </div>
 
                 <div className={styles.labelRow}>
-                  Kolumny wyszukiwania (max 2) <FieldHelp text={HELP.searchColumns} />
+                  Kolumny wyszukiwania (identyfikator + max 2){" "}
+                  <FieldHelp text={HELP.searchColumns} />
                 </div>
                 <div className={styles.columnList}>
                   {columns.map((col) => {
-                    const checked = form.searchColumns.includes(col);
+                    const isId = col === form.idColumn;
+                    const checked = isId || form.searchColumns.includes(col);
+                    const disabled =
+                      isId || (!checked && form.searchColumns.length >= 2);
                     return (
                       <label className={styles.columnItem} key={col}>
                         <input
                           type="checkbox"
                           checked={checked}
-                          disabled={!checked && form.searchColumns.length >= 2}
+                          disabled={disabled}
                           onChange={() => toggleSearchColumn(col)}
                         />
                         <span className={styles.columnMono}>{col}</span>
+                        {isId ? (
+                          <span className={styles.idTag}>identyfikator</span>
+                        ) : null}
                       </label>
                     );
                   })}

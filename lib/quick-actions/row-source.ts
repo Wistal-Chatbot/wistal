@@ -68,16 +68,24 @@ export async function searchRows(
 ): Promise<QuickActionOption[]> {
   const { table, id, search } = await resolveConfig(config);
 
+  // The id column is always searchable and shown; `search` are the extra columns.
+  // Label prefers the human search columns, falling back to the id.
+  const labelCols = search.length > 0 ? search : [id];
+  const targets = [id, ...search].filter(
+    (col, i, arr) =>
+      arr.findIndex((c) => c.toLowerCase() === col.toLowerCase()) === i,
+  );
+
   const selectCols = [
     `${quoteIdent(id)} AS id`,
-    ...search.map((col, i) => `${quoteIdent(col)} AS s${i}`),
+    ...labelCols.map((col, i) => `${quoteIdent(col)} AS s${i}`),
   ].join(", ");
 
   const term = query.trim();
   const where = term
-    ? `WHERE ${search.map((col) => `${quoteIdent(col)}::text ILIKE $1`).join(" OR ")}`
+    ? `WHERE ${targets.map((col) => `${quoteIdent(col)}::text ILIKE $1`).join(" OR ")}`
     : "";
-  // ORDER BY 2 = first search column (position 1 is the id).
+  // ORDER BY 2 = first label column (position 1 is the id).
   const sql = `SELECT DISTINCT ${selectCols} FROM ${quoteIdent(table)} ${where} ORDER BY 2 LIMIT ${Math.trunc(limit)}`;
   const params = term ? [`%${escapeLike(term)}%`] : [];
 
@@ -85,7 +93,7 @@ export async function searchRows(
 
   return rows.map((row) => {
     const label =
-      search
+      labelCols
         .map((_, i) => row[`s${i}`])
         .filter((v) => v !== null && v !== undefined)
         .map(String)

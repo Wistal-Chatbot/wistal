@@ -31,7 +31,8 @@ export const customInputSchema = z.union([
     table: z.string().min(1),
     idColumn: z.string().min(1),
     fetchColumns: z.array(z.string().min(1)).min(1),
-    searchColumns: z.array(z.string().min(1)).min(1).max(2),
+    // Extra search columns beyond the id (which is always searchable). Max 2.
+    searchColumns: z.array(z.string().min(1)).max(2),
     required: z.boolean().optional(),
   }),
 ]);
