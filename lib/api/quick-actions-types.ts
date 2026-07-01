@@ -2,8 +2,7 @@
  * Wire shapes and the `quick_actions.custom_input` contract. Kept free of
  * `server-only`/`db` imports (like `chat-types.ts`) so both the route handlers
  * and the client can share these types. The server-only pieces that touch SQL
- * (resolving `select_from_db` options, validating input) live in
- * `lib/quick-actions/resolve.ts`.
+ * (searching/fetching rows, validating input) live in `lib/quick-actions/*`.
  */
 
 import { z } from "zod";
@@ -13,7 +12,10 @@ import { z } from "zod";
  * quick action needs from the user:
  *   - `{}`               → no input; run the template as-is.
  *   - `text`             → a free-text field.
- *   - `select_from_db`   → a dropdown whose options come from a read-only SELECT.
+ *   - `row_from_table`   → pick one row from an ERP table. The admin selects the
+ *     table, which columns to fetch (fed to the AI) and 1–2 columns to search on;
+ *     `idColumn` identifies the chosen row. No hand-written SQL — the backend
+ *     builds a safe `SELECT` from these validated identifiers.
  */
 export const customInputSchema = z.union([
   z.object({}).strict(),
@@ -24,11 +26,12 @@ export const customInputSchema = z.union([
     required: z.boolean().optional(),
   }),
   z.object({
-    type: z.literal("select_from_db"),
+    type: z.literal("row_from_table"),
     label: z.string().min(1),
-    query: z.string().min(1),
-    valueColumn: z.string().min(1),
-    labelColumn: z.string().optional(),
+    table: z.string().min(1),
+    idColumn: z.string().min(1),
+    fetchColumns: z.array(z.string().min(1)).min(1),
+    searchColumns: z.array(z.string().min(1)).min(1).max(2),
     required: z.boolean().optional(),
   }),
 ]);
@@ -37,11 +40,12 @@ export type CustomInput =
   | Record<string, never>
   | { type: "text"; label: string; placeholder?: string; required?: boolean }
   | {
-      type: "select_from_db";
+      type: "row_from_table";
       label: string;
-      query: string;
-      valueColumn: string;
-      labelColumn?: string;
+      table: string;
+      idColumn: string;
+      fetchColumns: string[];
+      searchColumns: string[];
       required?: boolean;
     };
 
@@ -51,19 +55,21 @@ export function parseCustomInput(raw: unknown): CustomInput {
   return result.success ? (result.data as CustomInput) : {};
 }
 
+/** A selectable option / row: `value` is submitted, `label` is shown. */
 export interface QuickActionOption {
   value: string;
   label: string;
 }
 
-/** Client-facing input descriptor. Never exposes the raw `select_from_db` query. */
+/**
+ * Client-facing input descriptor. For `row_from_table` the rows are NOT embedded
+ * here — the chat searches them lazily via `GET /api/quick-actions/:key/rows`.
+ */
 export interface QuickActionInputDto {
-  type: "text" | "select_from_db";
+  type: "text" | "row_from_table";
   label: string;
   placeholder?: string;
   required: boolean;
-  /** Present for `select_from_db`; resolved server-side. */
-  options?: QuickActionOption[];
 }
 
 export interface QuickActionDto {
@@ -92,9 +98,28 @@ export function resolvePromptTemplate(
   return trimmed ? `${template} ${trimmed}`.trim() : template.trim();
 }
 
+/** Quotes a SQL identifier. Defense-in-depth — callers must still validate the
+ * name against the table's real columns before using it. */
+export function quoteIdent(name: string): string {
+  return `"${name.replace(/"/g, '""')}"`;
+}
+
+/**
+ * Human-readable preview of the `SELECT` a `row_from_table` action runs for the
+ * chosen row. Shared by the admin form (preview) and the run path (audit).
+ */
+export function buildFetchSql(config: {
+  table: string;
+  idColumn: string;
+  fetchColumns: string[];
+}): string {
+  const cols = config.fetchColumns.map(quoteIdent).join(", ");
+  return `SELECT ${cols}\nFROM ${quoteIdent(config.table)}\nWHERE ${quoteIdent(config.idColumn)} = :wybrany_wiersz`;
+}
+
 // ── Admin (CRUD) ─────────────────────────────────────────────────────────────
 
-/** Full admin-facing view of a quick action (admins may see the prompt + query). */
+/** Full admin-facing view of a quick action (admins may see the prompt + config). */
 export interface AdminQuickActionDto {
   id: number;
   key: string;
