@@ -10,7 +10,5 @@ export async function GET() {
   }
 
   const actions = await getEnabledQuickActions();
-  const dtos = await Promise.all(actions.map(toQuickActionDto));
-
-  return Response.json({ actions: dtos });
+  return Response.json({ actions: actions.map(toQuickActionDto) });
 }

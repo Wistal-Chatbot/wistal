@@ -1,7 +1,9 @@
 import { z } from "zod";
 
+import { streamDataAnswer } from "@/lib/ai/data-answer";
 import { runChatTurn, type ChatTurnEvent } from "@/lib/ai/orchestrator";
 import { checkMonthlyTokenLimit } from "@/lib/ai/token-usage";
+import { parseCustomInput } from "@/lib/api/quick-actions-types";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { checkRateLimit } from "@/lib/auth/rate-limit";
 import {
@@ -11,10 +13,8 @@ import {
   setSessionTitleIfEmpty,
 } from "@/lib/db/queries";
 import { log, preview } from "@/lib/log";
-import {
-  validateAndResolvePrompt,
-  type ResolveResult,
-} from "@/lib/quick-actions/resolve";
+import { validateAndResolvePrompt } from "@/lib/quick-actions/resolve";
+import { fetchRow } from "@/lib/quick-actions/row-source";
 
 const bodySchema = z.object({
   session_id: z.string().uuid(),
@@ -115,52 +115,101 @@ export async function POST(
     );
   }
 
-  // Validate input against custom_input and build the effective user message.
-  let resolved: ResolveResult;
-  try {
-    resolved = await validateAndResolvePrompt(action, input);
-  } catch (error) {
-    log.error("quick-actions.run", "prompt resolution failed", {
-      key,
-      userId: user.id,
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return Response.json(
-      { error: "Nie udało się przygotować akcji." },
-      { status: 502 },
-    );
-  }
-  if (!resolved.ok) {
-    return Response.json({ error: resolved.error }, { status: 400 });
-  }
-  const promptText = resolved.prompt;
-
+  const config = parseCustomInput(action.customInput);
   const webSearchEnabled = session.webSearchEnabled || action.usesWebSearch;
 
-  log.info("quick-actions.run", "request", {
-    sessionId: session.id,
-    userId: user.id,
-    key,
-    webSearchEnabled,
-    stream: useStream,
-    prompt: preview(promptText),
-  });
+  let events: AsyncGenerator<ChatTurnEvent>;
 
-  // Persist the resolved prompt as the user turn, then run the shared pipeline —
-  // runChatTurn reads the session's messages, so it picks this up as the turn.
-  await createChatMessage({
-    chatSessionId: session.id,
-    userId: user.id,
-    messageType: "user",
-    content: promptText,
-  });
-  await setSessionTitleIfEmpty(session.id, promptText.slice(0, 60));
+  if ("type" in config && config.type === "row_from_table") {
+    // Deterministic path: fetch the chosen row, then the AI only composes the
+    // answer from it — no AI-generated SQL.
+    const chosenId = (input ?? "").trim();
+    if (!chosenId) {
+      return Response.json(
+        { error: `Wybierz wartość dla pola „${config.label}”.` },
+        { status: 400 },
+      );
+    }
 
-  const events = runChatTurn({
-    session: { ...session, webSearchEnabled },
-    user,
-    source: "quick_action",
-  });
+    let fetched: { row: Record<string, unknown> | null; sql: string };
+    try {
+      fetched = await fetchRow(config, chosenId);
+    } catch (error) {
+      log.error("quick-actions.run", "row fetch failed", {
+        key,
+        userId: user.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return Response.json(
+        { error: "Nie udało się pobrać danych akcji." },
+        { status: 502 },
+      );
+    }
+    if (!fetched.row) {
+      return Response.json(
+        { error: "Wybrana wartość jest nieprawidłowa." },
+        { status: 400 },
+      );
+    }
+
+    const userMessage = `${action.namePl}: ${chosenId}`;
+    log.info("quick-actions.run", "request (row_from_table)", {
+      sessionId: session.id,
+      userId: user.id,
+      key,
+      table: config.table,
+      stream: useStream,
+    });
+    await createChatMessage({
+      chatSessionId: session.id,
+      userId: user.id,
+      messageType: "user",
+      content: userMessage,
+    });
+    await setSessionTitleIfEmpty(session.id, userMessage.slice(0, 60));
+
+    events = streamDataAnswer({
+      session,
+      user,
+      promptTemplate: action.promptTemplate,
+      data: fetched.row,
+      table: config.table,
+      sqlExecuted: fetched.sql,
+      source: "quick_action",
+    });
+  } else {
+    // text / no-input path: the AI generates the SQL (runChatTurn).
+    const resolved = validateAndResolvePrompt(action, input);
+    if (!resolved.ok) {
+      return Response.json({ error: resolved.error }, { status: 400 });
+    }
+    const promptText = resolved.prompt;
+
+    log.info("quick-actions.run", "request", {
+      sessionId: session.id,
+      userId: user.id,
+      key,
+      webSearchEnabled,
+      stream: useStream,
+      prompt: preview(promptText),
+    });
+
+    // Persist the resolved prompt as the user turn; runChatTurn reads the
+    // session's messages, so it picks this up as the current turn.
+    await createChatMessage({
+      chatSessionId: session.id,
+      userId: user.id,
+      messageType: "user",
+      content: promptText,
+    });
+    await setSessionTitleIfEmpty(session.id, promptText.slice(0, 60));
+
+    events = runChatTurn({
+      session: { ...session, webSearchEnabled },
+      user,
+      source: "quick_action",
+    });
+  }
 
   if (!useStream) {
     let text = "";
