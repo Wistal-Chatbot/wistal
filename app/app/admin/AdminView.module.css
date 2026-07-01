@@ -351,14 +351,18 @@
   align-items: start;
   display: grid;
   gap: 20px;
-  grid-template-columns: 1.5fr 1fr;
+  /* Table takes the rest; the form column is capped so it never stretches wide. */
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 440px);
 }
 
 .formCard {
   background: var(--surface);
   border: 1px solid var(--border-soft);
   border-radius: 12px;
+  max-width: 460px;
+  min-width: 0;
   padding: 22px;
+  width: 100%;
 }
 
 .formTitle {
@@ -575,6 +579,7 @@
   display: flex;
   font-size: 13px;
   gap: 8px;
+  min-width: 0;
   padding: 4px 6px;
 }
 
@@ -592,6 +597,10 @@
 
 .columnMono {
   font-family: var(--font-ibm-plex-mono), monospace;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .idTag {
