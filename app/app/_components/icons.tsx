@@ -187,6 +187,15 @@ export function CopyIcon(props: IconProps) {
   );
 }
 
+export function EditIcon(props: IconProps) {
+  return (
+    <Svg strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M3 15v-2.5L11.5 4l2.5 2.5L5.5 15H3z" />
+      <path d="M10 5.5 12.5 8" />
+    </Svg>
+  );
+}
+
 export function CommentIcon(props: IconProps) {
   return (
     <Svg strokeWidth={1.6} {...props}>
