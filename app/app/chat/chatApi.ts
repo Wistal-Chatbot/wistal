@@ -3,6 +3,7 @@ import type {
   SessionDto,
   TokenUsageMetadata,
 } from "@/lib/api/chat-types";
+import type { QuickActionDto } from "@/lib/api/quick-actions-types";
 
 import type { UiMessage, UiMetrics, UiSession, UiSource } from "./types";
 
@@ -71,6 +72,14 @@ export async function setWebSearch(
   return data.session;
 }
 
+/** Active quick actions for the composer bar (options resolved server-side). */
+export async function fetchQuickActions(): Promise<QuickActionDto[]> {
+  const data = await apiFetch<{ actions: QuickActionDto[] }>(
+    "/api/quick-actions",
+  );
+  return data.actions;
+}
+
 // ── Streaming a chat turn (NDJSON) ───────────────────────────────────────────
 
 export interface StreamMeta {
@@ -95,22 +104,14 @@ export interface StreamHandlers {
 }
 
 /**
- * Sends a message and consumes the NDJSON stream from the orchestrator,
- * dispatching `delta` / `meta` / `error` frames to the handlers.
+ * Consumes an NDJSON turn stream (from the chat or quick-action endpoint),
+ * dispatching `delta` / `meta` / `error` frames to the handlers. Both endpoints
+ * emit the same `ChatTurnEvent` frames, so the plumbing is shared.
  */
-export async function streamMessage(
-  sessionId: string,
-  message: string,
+async function pumpTurnStream(
+  res: Response,
   handlers: StreamHandlers,
 ): Promise<void> {
-  const res = await fetch(`/api/chat/sessions/${sessionId}/messages`, {
-    method: "POST",
-    credentials: "same-origin",
-    cache: "no-store",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message, stream: true }),
-  });
-
   if (!res.ok || !res.body) {
     let msg = "Wystąpił błąd. Spróbuj ponownie.";
     try {
@@ -171,6 +172,46 @@ export async function streamMessage(
   }
   buffer += decoder.decode();
   if (buffer.trim()) handleLine(buffer);
+}
+
+/** Sends a chat message and streams the orchestrator's answer. */
+export async function streamMessage(
+  sessionId: string,
+  message: string,
+  handlers: StreamHandlers,
+): Promise<void> {
+  const res = await fetch(`/api/chat/sessions/${sessionId}/messages`, {
+    method: "POST",
+    credentials: "same-origin",
+    cache: "no-store",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message, stream: true }),
+  });
+  return pumpTurnStream(res, handlers);
+}
+
+/**
+ * Runs a quick action in a session and streams the answer. `input` is the raw
+ * user value (or null); the backend validates it against the action's
+ * `custom_input` and substitutes it into the stored prompt template.
+ */
+export async function streamQuickAction(
+  key: string,
+  sessionId: string,
+  input: string | null,
+  handlers: StreamHandlers,
+): Promise<void> {
+  const res = await fetch(
+    `/api/quick-actions/${encodeURIComponent(key)}/run`,
+    {
+      method: "POST",
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session_id: sessionId, input, stream: true }),
+    },
+  );
+  return pumpTurnStream(res, handlers);
 }
 
 // ── Adapters: DB DTO → UI types ──────────────────────────────────────────────

@@ -4,7 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-import { type QuickAction, quickActions } from "@/lib/mock-data";
+import type {
+  QuickActionDto,
+  QuickActionInputDto,
+} from "@/lib/api/quick-actions-types";
 import {
   BotIcon,
   CheckIcon,
@@ -17,16 +20,24 @@ import {
 import {
   createSession,
   dtoToUiSession,
+  fetchQuickActions,
   fetchSession,
   fetchSessions,
   messagesToUi,
   setWebSearch as apiSetWebSearch,
   streamMessage,
+  streamQuickAction,
+  type StreamHandlers,
 } from "./chatApi";
 import type { UiMessage, UiSession } from "./types";
 import styles from "./ChatView.module.css";
 
-type QaForm = { title: string; label: string; placeholder: string; value: string };
+type QaForm = {
+  key: string;
+  title: string;
+  input: QuickActionInputDto;
+  value: string;
+};
 
 function nowTime() {
   return new Date().toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" });
@@ -48,6 +59,7 @@ export function ChatView({
   const [webSearch, setWebSearch] = useState(false);
   const [sending, setSending] = useState(false);
   const [qaForm, setQaForm] = useState<QaForm | null>(null);
+  const [actions, setActions] = useState<QuickActionDto[]>([]);
   const [fbOpenId, setFbOpenId] = useState<string | null>(null);
   const [fbText, setFbText] = useState("");
   const [fbSent, setFbSent] = useState<Record<string, boolean>>({});
@@ -63,6 +75,22 @@ export function ChatView({
   useEffect(() => {
     return () => {
       if (copyResetTimer.current) clearTimeout(copyResetTimer.current);
+    };
+  }, []);
+
+  // Load the admin-configured quick actions for the composer bar.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const list = await fetchQuickActions();
+        if (!cancelled) setActions(list);
+      } catch {
+        // Leave the bar empty on failure; the composer still works.
+      }
+    })();
+    return () => {
+      cancelled = true;
     };
   }, []);
 
@@ -132,38 +160,45 @@ export function ChatView({
     }
   }
 
-  async function send(text?: string) {
-    const value = (text ?? chatInput).trim();
-    if (!value || sending) return;
-
-    // Lazily create the session on the first message.
-    let sid = activeId;
-    if (!sid) {
-      try {
-        const dto = await createSession({ webSearchEnabled: webSearch });
-        setSessions((prev) => [dtoToUiSession(dto), ...prev]);
-        setActiveId(dto.id);
-        setWebSearch(dto.webSearchEnabled);
-        sid = dto.id;
-      } catch {
-        return;
-      }
+  // Lazily create the session on the first turn; returns its id or null on failure.
+  async function ensureSession(): Promise<string | null> {
+    if (activeId) return activeId;
+    try {
+      const dto = await createSession({ webSearchEnabled: webSearch });
+      setSessions((prev) => [dtoToUiSession(dto), ...prev]);
+      setActiveId(dto.id);
+      setWebSearch(dto.webSearchEnabled);
+      return dto.id;
+    } catch {
+      return null;
     }
+  }
+
+  /**
+   * Shared turn bookkeeping: appends the user + a pending bot message, seeds the
+   * sidebar title, then delegates the streaming to `stream` (a chat message or a
+   * quick action). Both endpoints emit the same NDJSON frames.
+   */
+  async function runTurn(
+    userText: string,
+    stream: (sessionId: string, handlers: StreamHandlers) => Promise<void>,
+  ) {
+    if (sending) return;
+    const sid = await ensureSession();
+    if (!sid) return;
 
     const time = nowTime();
-    const userMsg: UiMessage = { id: nextId("user"), role: "user", time, content: value };
+    const userMsg: UiMessage = { id: nextId("user"), role: "user", time, content: userText };
     const botId = nextId("bot");
     const botMsg: UiMessage = { id: botId, role: "bot", time, content: "", pending: true };
     setMessages((prev) => [...prev, userMsg, botMsg]);
-    setChatInput("");
     setSending(true);
 
-    // Seed the sidebar title from the first question (matches backend auto-title).
-    const sessionId = sid;
+    // Seed the sidebar title from the first turn (matches backend auto-title).
     setSessions((prev) =>
       prev.map((s) =>
-        s.id === sessionId && s.title === "Nowa rozmowa"
-          ? { ...s, title: value.slice(0, 60) }
+        s.id === sid && s.title === "Nowa rozmowa"
+          ? { ...s, title: userText.slice(0, 60) }
           : s,
       ),
     );
@@ -174,7 +209,7 @@ export function ChatView({
       );
 
     try {
-      await streamMessage(sessionId, value, {
+      await stream(sid, {
         onDelta: (delta) =>
           setMessages((prev) =>
             prev.map((m) =>
@@ -190,22 +225,38 @@ export function ChatView({
     }
   }
 
-  function onQuickAction(action: QuickAction) {
+  async function send(text?: string) {
+    const value = (text ?? chatInput).trim();
+    if (!value || sending) return;
+    setChatInput("");
+    await runTurn(value, (sid, handlers) => streamMessage(sid, value, handlers));
+  }
+
+  // Runs a quick action; the backend resolves the prompt from template + input.
+  async function runQuickAction(
+    key: string,
+    displayName: string,
+    inputValue: string | null,
+  ) {
+    const label = inputValue ? `${displayName}: ${inputValue}` : displayName;
+    await runTurn(label, (sid, handlers) =>
+      streamQuickAction(key, sid, inputValue, handlers),
+    );
+  }
+
+  function onQuickAction(action: QuickActionDto) {
     if (action.input) {
-      setQaForm({
-        title: action.name,
-        label: action.input.label,
-        placeholder: action.input.placeholder,
-        value: "",
-      });
+      setQaForm({ key: action.key, title: action.name, input: action.input, value: "" });
     } else {
-      void send(action.prompt ?? action.name);
+      void runQuickAction(action.key, action.name, null);
     }
   }
 
   function submitQa() {
     if (!qaForm) return;
-    void send(`${qaForm.title} — ${qaForm.value.trim() || "(wszyscy)"}`);
+    const value = qaForm.value.trim();
+    if (qaForm.input.required && !value) return;
+    void runQuickAction(qaForm.key, qaForm.title, value || null);
     setQaForm(null);
   }
 
@@ -240,8 +291,6 @@ export function ChatView({
       // Clipboard access can be blocked by the browser; leave the UI unchanged.
     }
   }
-
-  const enabledActions = quickActions.filter((a) => a.enabled);
 
   return (
     <div className={styles.chat}>
@@ -443,16 +492,35 @@ export function ChatView({
                   </span>
                   <div className={styles.qaFormTitle}>{qaForm.title}</div>
                 </div>
-                <label className={styles.qaFormLabel}>{qaForm.label}</label>
+                <label className={styles.qaFormLabel}>{qaForm.input.label}</label>
                 <div className={styles.qaFormField}>
-                  <input
-                    className={styles.qaFormInput}
-                    placeholder={qaForm.placeholder}
-                    value={qaForm.value}
-                    onChange={(e) =>
-                      setQaForm((f) => (f ? { ...f, value: e.target.value } : f))
-                    }
-                  />
+                  {qaForm.input.type === "select_from_db" ? (
+                    <select
+                      className={styles.qaFormInput}
+                      value={qaForm.value}
+                      onChange={(e) =>
+                        setQaForm((f) => (f ? { ...f, value: e.target.value } : f))
+                      }
+                    >
+                      <option value="">
+                        {qaForm.input.placeholder ?? "Wybierz…"}
+                      </option>
+                      {(qaForm.input.options ?? []).map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      className={styles.qaFormInput}
+                      placeholder={qaForm.input.placeholder ?? ""}
+                      value={qaForm.value}
+                      onChange={(e) =>
+                        setQaForm((f) => (f ? { ...f, value: e.target.value } : f))
+                      }
+                    />
+                  )}
                   <span className={styles.qaFormCaret}>▼</span>
                 </div>
                 <div className={styles.qaFormActions}>
@@ -476,7 +544,7 @@ export function ChatView({
                 <span className={styles.webGlobe}>🌐</span>
                 Wyszukiwanie w internecie: {webSearch ? "WŁ" : "WYŁ"}
               </button>
-              {enabledActions.map((action) => (
+              {actions.map((action) => (
                 <button
                   type="button"
                   key={action.key}
