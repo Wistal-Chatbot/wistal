@@ -203,3 +203,13 @@ export function RefreshIcon(props: IconProps) {
     </Svg>
   );
 }
+
+export function HelpIcon(props: IconProps) {
+  return (
+    <Svg strokeWidth={1.5} {...props}>
+      <circle cx="9" cy="9" r="7" />
+      <path d="M6.8 6.8 A2.2 2 0 0 1 11.2 7 C11.2 8.6 9 8.6 9 10.4" />
+      <line x1="9" y1="12.6" x2="9" y2="13" />
+    </Svg>
+  );
+}

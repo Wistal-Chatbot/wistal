@@ -1,0 +1,43 @@
+.help {
+  color: var(--text-muted);
+  cursor: help;
+  display: inline-flex;
+  outline: none;
+  position: relative;
+  vertical-align: middle;
+}
+
+.help:hover,
+.help:focus-visible {
+  color: var(--primary);
+}
+
+.bubble {
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  bottom: calc(100% + 6px);
+  box-shadow: 0 8px 18px rgba(16, 40, 66, 0.16);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 400;
+  left: 50%;
+  line-height: 1.45;
+  opacity: 0;
+  padding: 8px 10px;
+  pointer-events: none;
+  position: absolute;
+  transform: translateX(-50%) translateY(4px);
+  transition: opacity 0.12s ease, transform 0.12s ease;
+  visibility: hidden;
+  white-space: normal;
+  width: 230px;
+  z-index: 70;
+}
+
+.help:hover .bubble,
+.help:focus-visible .bubble {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+  visibility: visible;
+}
