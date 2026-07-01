@@ -147,6 +147,39 @@ buffered `{ message: { content }, meta }` when `stream: false`.
 
 ---
 
+## Dane (data browser) — `/api/data`
+
+Manual ERP data browser. Any signed-in user (**not** admin-only). Wire shapes in
+[`lib/api/data-types.ts`](../../lib/api/data-types.ts); the exposed tables + column
+capabilities are configured in
+[`lib/data-browser/tables-config.ts`](../../lib/data-browser/tables-config.ts). No
+client SQL — the backend validates every identifier against the static config and
+the live `public` schema and builds a parametrized `SELECT` itself.
+
+### `GET /api/data/schema`
+Table + column config for the browser UI → `{ tables: DataSchemaTable[] }`. Each
+table has `key`, `label`, `description`, `primaryKey` (single-column, from live
+introspection, or `null`), and `columns[]` of
+`{ name, label, type: "text"|"integer"|"numeric"|"date", searchable, filterable, sortable }`.
+The static config is reconciled with the live schema on each request (missing
+tables/columns are dropped). Runs no ERP query, so nothing is audited.
+- `401` when unauthenticated.
+
+### `POST /api/data/query`
+Run a read-only query for one table. Body (`dataQueryRequestSchema`):
+`{ table, global_search?, filters?, sort?, page?, page_size? }`, where
+`filters[]` = `{ column, operator: "eq"|"gt"|"lt"|"gte"|"lte"|"like", value: string|number }`
+and `sort[]` = `{ column, direction: "asc"|"desc" }`. `global_search` ILIKE-matches
+across the table's `searchable` columns; filters/sort are rejected on columns that
+aren't `filterable`/`sortable`. Pagination is `page` (≥1, default 1) + `page_size`
+(default 50, max 100); the backend fetches `page_size + 1` rows to set `has_more`
+without a count. Returns `{ rows, has_more, page, page_size }` (raw typed DB values).
+Every executed query is audited with `source='manual_browser'`.
+- `400` malformed JSON / invalid params / unknown table or column / wrong capability
+  / bad filter value · `401` unauthenticated · `500` query execution failed.
+
+---
+
 ## Admin — `/api/admin` (all `requireAdmin`)
 
 ### `GET /api/admin/quick-actions`
@@ -193,6 +226,9 @@ POST   /api/chat/sessions/:sessionId/messages          # NDJSON stream
 GET    /api/quick-actions
 GET    /api/quick-actions/:key/rows
 POST   /api/quick-actions/:key/run                      # NDJSON stream
+
+GET    /api/data/schema
+POST   /api/data/query
 
 GET    /api/admin/quick-actions
 POST   /api/admin/quick-actions
