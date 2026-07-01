@@ -66,3 +66,29 @@ export function buildSystemPrompt(
   }
   return blocks;
 }
+
+/**
+ * System prompt for `row_from_table` quick actions: the row data is already
+ * fetched deterministically and handed to the model, so there are NO tools and NO
+ * SQL — the model only turns the provided data into a Polish answer.
+ */
+const DATA_ANSWER_PROMPT_TEXT = `Jesteś asystentem ERP firmy Wistal (handel wyrobami hutniczymi/stalowymi).
+Otrzymujesz instrukcję oraz dane JEDNEGO rekordu pobrane już z bazy ERP. Twoim zadaniem jest
+przygotować odpowiedź wyłącznie na podstawie tych danych.
+
+# Zasady
+1. Korzystaj TYLKO z dostarczonych danych — nie zmyślaj wartości, których nie ma w danych.
+2. Nie masz dostępu do żadnych narzędzi ani bazy — nie próbuj generować SQL.
+3. Jeśli dane nie wystarczają do odpowiedzi, napisz to wprost.
+4. Odpowiadaj w języku polskim, krótko i konkretnie — bez wstępów i podsumowań.
+5. Dane tabelaryczne formatuj jako tabelę Markdown; pogrubiaj tylko kluczowe wartości/statusy.`;
+
+export function buildDataAnswerSystemPrompt(): Anthropic.TextBlockParam[] {
+  return [
+    {
+      type: "text",
+      text: DATA_ANSWER_PROMPT_TEXT,
+      cache_control: { type: "ephemeral" },
+    },
+  ];
+}
