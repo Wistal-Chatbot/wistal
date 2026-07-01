@@ -34,6 +34,7 @@ interface FormState {
   idColumn: string;
   fetchColumns: string[];
   searchColumns: string[];
+  usesDatabase: boolean;
   usesWebSearch: boolean;
   isEnabled: boolean;
   displayOrder: string;
@@ -52,6 +53,7 @@ const EMPTY_FORM: FormState = {
   idColumn: "",
   fetchColumns: [],
   searchColumns: [],
+  usesDatabase: false,
   usesWebSearch: false,
   isEnabled: true,
   displayOrder: "0",
@@ -74,8 +76,10 @@ const HELP = {
   idColumn:
     "Kolumna identyfikująca rekord (klucz), używana w zapytaniu. Wykrywana automatycznie z klucza głównego tabeli.",
   required: "Czy użytkownik musi podać wartość, by uruchomić akcję.",
+  usesDatabase:
+    "Akcja korzysta z danych ERP. Dla „Wiersza z tabeli” włącza się automatycznie i jest zablokowane.",
   usesWebSearch:
-    "Udostępnia AI wyszukiwanie w internecie (dotyczy akcji tekstowych / bez pola).",
+    "Udostępnia AI wyszukiwanie w internecie (działa dla akcji tekstowych / bez pola).",
   enabled: "Tylko włączone akcje są widoczne jako przyciski w czacie.",
   order: "Kolejność przycisków w pasku szybkich akcji (rosnąco).",
 } as const;
@@ -98,6 +102,7 @@ function formFromAction(action: AdminQuickActionDto): FormState {
     key: action.key,
     keyTouched: true,
     promptTemplate: action.promptTemplate,
+    usesDatabase: action.usesDatabase,
     usesWebSearch: action.usesWebSearch,
     isEnabled: action.isEnabled,
     displayOrder: String(action.displayOrder),
@@ -227,6 +232,15 @@ export function QuickActionsManager() {
     setForm((prev) => ({ ...prev, ...patch }));
   }
 
+  function onInputTypeChange(value: InputType) {
+    setForm((prev) => ({
+      ...prev,
+      inputType: value,
+      // A row_from_table action always reads the ERP database.
+      usesDatabase: value === "row_from_table" ? true : prev.usesDatabase,
+    }));
+  }
+
   function onNameChange(value: string) {
     setForm((prev) => ({
       ...prev,
@@ -294,7 +308,7 @@ export function QuickActionsManager() {
       namePl: form.namePl.trim(),
       promptTemplate: form.promptTemplate.trim(),
       customInput: buildCustomInput(form),
-      usesDatabase: form.inputType === "row_from_table",
+      usesDatabase: form.usesDatabase,
       usesWebSearch: form.usesWebSearch,
       displayOrder: Number.parseInt(form.displayOrder, 10) || 0,
       isEnabled: form.isEnabled,
@@ -447,7 +461,7 @@ export function QuickActionsManager() {
         <select
           className={styles.select}
           value={form.inputType}
-          onChange={(e) => patchForm({ inputType: e.target.value as InputType })}
+          onChange={(e) => onInputTypeChange(e.target.value as InputType)}
         >
           <option value="none">Brak</option>
           <option value="text">Tekst</option>
@@ -577,17 +591,26 @@ export function QuickActionsManager() {
           </label>
         ) : null}
 
-        {form.inputType !== "row_from_table" ? (
-          <label className={styles.checkRow}>
-            <input
-              type="checkbox"
-              checked={form.usesWebSearch}
-              onChange={(e) => patchForm({ usesWebSearch: e.target.checked })}
-            />
-            Wyszukiwanie w internecie
-            <FieldHelp text={HELP.usesWebSearch} />
-          </label>
-        ) : null}
+        <label className={styles.checkRow}>
+          <input
+            type="checkbox"
+            checked={form.usesDatabase}
+            disabled={form.inputType === "row_from_table"}
+            onChange={(e) => patchForm({ usesDatabase: e.target.checked })}
+          />
+          Korzysta z bazy danych
+          <FieldHelp text={HELP.usesDatabase} />
+        </label>
+
+        <label className={styles.checkRow}>
+          <input
+            type="checkbox"
+            checked={form.usesWebSearch}
+            onChange={(e) => patchForm({ usesWebSearch: e.target.checked })}
+          />
+          Wyszukiwanie w internecie
+          <FieldHelp text={HELP.usesWebSearch} />
+        </label>
 
         <label className={styles.checkRow}>
           <input
