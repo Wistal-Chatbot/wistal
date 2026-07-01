@@ -4,7 +4,8 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { type ReactNode, useState } from "react";
-import { aiUsage, currentUser } from "@/lib/mock-data";
+import { aiUsage } from "@/lib/mock-data";
+import type { CurrentUser } from "@/lib/mock-data/types";
 import {
   AdminIcon,
   ChatIcon,
@@ -48,7 +49,13 @@ function titleForPath(pathname: string) {
   );
 }
 
-export function AppShell({ children }: { children: ReactNode }) {
+export function AppShell({
+  children,
+  currentUser,
+}: {
+  children: ReactNode;
+  currentUser: CurrentUser;
+}) {
   const pathname = usePathname();
   const router = useRouter();
   const current = titleForPath(pathname);

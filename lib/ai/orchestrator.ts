@@ -89,9 +89,11 @@ function postgresErrorMessage(error: unknown): string {
 export async function* runChatTurn(params: {
   session: ChatSession;
   user: AppUser;
+  /** Audit trail source; `quick_action` when driven by a Szybka akcja. */
+  source?: "chatbot" | "quick_action";
 }): AsyncGenerator<ChatTurnEvent> {
   const turnStartedAt = Date.now();
-  const { session, user } = params;
+  const { session, user, source = "chatbot" } = params;
   const anthropic = getAnthropic();
   const allowlist = await getPublicTableAllowlist();
 
@@ -219,7 +221,7 @@ export async function* runChatTurn(params: {
           await insertQueryAudit({
             chatSessionId: session.id,
             userId: user.id,
-            source: "chatbot",
+            source,
             userInput,
             sqlGenerated: sql,
             sqlValid: false,
@@ -252,7 +254,7 @@ export async function* runChatTurn(params: {
           lastAuditId = await insertQueryAudit({
             chatSessionId: session.id,
             userId: user.id,
-            source: "chatbot",
+            source,
             userInput,
             sqlGenerated: sql,
             sqlExecuted: executable,
@@ -276,7 +278,7 @@ export async function* runChatTurn(params: {
           await insertQueryAudit({
             chatSessionId: session.id,
             userId: user.id,
-            source: "chatbot",
+            source,
             userInput,
             sqlGenerated: sql,
             sqlExecuted: executable,

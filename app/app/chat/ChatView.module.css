@@ -198,6 +198,75 @@
   color: var(--text-primary);
   font-size: 16px;
   font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.titleEditToggle {
+  align-items: center;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  flex: none;
+  height: 28px;
+  justify-content: center;
+  padding: 0;
+  width: 28px;
+}
+
+.titleEditToggle:hover {
+  background: #eef1f5;
+  color: var(--primary);
+}
+
+.titleEdit {
+  align-items: center;
+  display: flex;
+  flex: 1;
+  gap: 6px;
+  min-width: 0;
+}
+
+.titleInput {
+  border: 1px solid var(--border-soft);
+  border-radius: 7px;
+  color: var(--text-primary);
+  flex: 1;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  max-width: 440px;
+  min-width: 0;
+  padding: 6px 10px;
+}
+
+.titleInput:focus {
+  border-color: var(--primary);
+  outline: none;
+}
+
+.titleIconBtn {
+  align-items: center;
+  background: #f5f6f8;
+  border: 1px solid var(--border-soft);
+  border-radius: 7px;
+  color: #5a6573;
+  cursor: pointer;
+  display: flex;
+  flex: none;
+  height: 32px;
+  justify-content: center;
+  padding: 0;
+  width: 32px;
+}
+
+.titleIconBtn:hover {
+  background: #eef1f5;
+  color: var(--primary);
 }
 
 .messages {
@@ -578,6 +647,8 @@
 }
 
 .qaFormInput {
+  appearance: none;
+  -webkit-appearance: none;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 8px;

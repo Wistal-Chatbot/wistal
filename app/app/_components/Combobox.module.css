@@ -1,0 +1,89 @@
+.wrap {
+  position: relative;
+}
+
+.input {
+  appearance: none;
+  -webkit-appearance: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 13px;
+  outline: none;
+  padding: 10px 32px 10px 12px;
+  width: 100%;
+}
+
+.input:focus {
+  border-color: var(--primary);
+}
+
+.caret {
+  color: var(--placeholder);
+  font-size: 11px;
+  pointer-events: none;
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.backdrop {
+  background: transparent;
+  border: 0;
+  cursor: default;
+  inset: 0;
+  position: fixed;
+  z-index: 60;
+}
+
+.menu {
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  box-shadow: 0 14px 34px rgba(6, 16, 30, 0.18);
+  left: 0;
+  margin-top: 4px;
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 4px;
+  position: absolute;
+  right: 0;
+  top: 100%;
+  z-index: 70;
+}
+
+.option,
+.optionActive,
+.optionSelected {
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  color: var(--text-primary);
+  cursor: pointer;
+  display: block;
+  font-size: 13px;
+  overflow: hidden;
+  padding: 8px 10px;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  width: 100%;
+}
+
+.optionActive {
+  background: #eef1fb;
+}
+
+.optionSelected {
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.state {
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 10px;
+  text-align: center;
+}

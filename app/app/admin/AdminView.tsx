@@ -3,10 +3,10 @@ import {
   adminStats,
   adminUsers,
   aiReports,
-  quickActions,
   systemStatus,
   weeklyQueries,
 } from "@/lib/mock-data";
+import { QuickActionsManager } from "./quick-actions/QuickActionsManager";
 import styles from "./AdminView.module.css";
 
 export type AdminTab = "overview" | "reports" | "quick";
@@ -34,7 +34,7 @@ export function AdminView({ active }: { active: AdminTab }) {
 
       {active === "overview" ? <Overview /> : null}
       {active === "reports" ? <ReportsAdmin /> : null}
-      {active === "quick" ? <QuickActionsAdmin /> : null}
+      {active === "quick" ? <QuickActionsManager /> : null}
     </div>
   );
 }
@@ -200,60 +200,3 @@ function ReportsAdmin() {
   );
 }
 
-function QuickActionsAdmin() {
-  return (
-    <div className={styles.manageGrid}>
-      <div className={styles.tableCard}>
-        <div className={styles.manageHead}>
-          <div className={styles.tableCardTitle}>Szybkie akcje</div>
-          <span className={styles.manageCount}>{quickActions.length} pozycji</span>
-        </div>
-        <table className={styles.table}>
-          <thead>
-            <tr>
-              <th className={styles.th}>NAZWA</th>
-              <th className={styles.th}>KLUCZ</th>
-              <th className={styles.th}>POLE WEJŚCIA</th>
-              <th className={styles.th}>STATUS</th>
-              <th className={styles.th} />
-            </tr>
-          </thead>
-          <tbody>
-            {quickActions.map((action) => (
-              <tr className={styles.tr} key={action.key}>
-                <td className={styles.tdName}>{action.name}</td>
-                <td className={styles.tdMonoSmall}>{action.key}</td>
-                <td className={styles.tdSecondary}>{action.input ? action.input.label : "—"}</td>
-                <td className={styles.td}>
-                  <span className={action.enabled ? styles.pillActive : styles.pillIdle}>
-                    {action.enabled ? "Włączona" : "Wyłączona"}
-                  </span>
-                </td>
-                <td className={styles.tdActions}>
-                  <span className={styles.actionEdit}>Edytuj</span>
-                  <span className={styles.actionDelete}>Usuń</span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      <div className={styles.formCard}>
-        <div className={styles.formTitle}>Nowa szybka akcja</div>
-        <label className={styles.formLabel}>Nazwa</label>
-        <input className={styles.input} placeholder="np. Zamówienia kontrahenta" />
-        <label className={styles.formLabel}>Szablon promptu</label>
-        <textarea
-          className={styles.textarea}
-          placeholder="np. Pokaż zamówienia kontrahenta {kontrahent} z ostatnich 90 dni"
-        />
-        <label className={styles.formLabel}>Pole wejścia (opcjonalne)</label>
-        <input className={styles.input} placeholder="np. Kontrahent — lista lub tekst" />
-        <button type="button" className={styles.submitButton}>
-          Dodaj akcję
-        </button>
-      </div>
-    </div>
-  );
-}
