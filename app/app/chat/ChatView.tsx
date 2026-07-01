@@ -11,7 +11,9 @@ import type {
 import {
   BotIcon,
   CheckIcon,
+  CloseIcon,
   CopyIcon,
+  EditIcon,
   MenuIcon,
   PlusIcon,
   SearchIcon,
@@ -29,6 +31,7 @@ import {
   setWebSearch as apiSetWebSearch,
   streamMessage,
   streamQuickAction,
+  updateSessionTitle,
   type StreamHandlers,
 } from "./chatApi";
 import type { UiMessage, UiSession } from "./types";
@@ -66,8 +69,11 @@ export function ChatView({
   const [fbText, setFbText] = useState("");
   const [fbSent, setFbSent] = useState<Record<string, boolean>>({});
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState("");
   const clientSeq = useRef(0);
   const copyResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const titleInputRef = useRef<HTMLInputElement | null>(null);
 
   function nextId(prefix: string) {
     clientSeq.current += 1;
@@ -79,6 +85,11 @@ export function ChatView({
       if (copyResetTimer.current) clearTimeout(copyResetTimer.current);
     };
   }, []);
+
+  // Focus (and select) the title field as soon as inline editing opens.
+  useEffect(() => {
+    if (editingTitle) titleInputRef.current?.select();
+  }, [editingTitle]);
 
   // Load the admin-configured quick actions for the composer bar.
   useEffect(() => {
@@ -133,6 +144,7 @@ export function ChatView({
   async function selectSession(s: UiSession) {
     setActiveId(s.id);
     setQaForm(null);
+    setEditingTitle(false);
     try {
       const { session, messages: loaded } = await fetchSession(s.id);
       setMessages(messagesToUi(loaded));
@@ -148,6 +160,38 @@ export function ChatView({
     setActiveId(null);
     setMessages([]);
     setWebSearch(false);
+    setEditingTitle(false);
+  }
+
+  function startEditTitle() {
+    if (!activeSession) return;
+    setTitleDraft(activeSession.title);
+    setEditingTitle(true);
+  }
+
+  function cancelEditTitle() {
+    setEditingTitle(false);
+    setTitleDraft("");
+  }
+
+  // Rename the active session (optimistic + rollback), then close the editor.
+  async function saveTitle() {
+    if (!activeId) return;
+    const next = titleDraft.trim();
+    const previous = activeSession?.title ?? "";
+    setEditingTitle(false);
+    if (!next || next === previous) return;
+
+    setSessions((prev) =>
+      prev.map((s) => (s.id === activeId ? { ...s, title: next } : s)),
+    );
+    try {
+      await updateSessionTitle(activeId, next);
+    } catch {
+      setSessions((prev) =>
+        prev.map((s) => (s.id === activeId ? { ...s, title: previous } : s)),
+      );
+    }
   }
 
   // Persist the web-search toggle on the active session (optimistic + rollback).
@@ -350,7 +394,59 @@ export function ChatView({
           >
             <MenuIcon size={18} />
           </button>
-          <div className={styles.columnTitle}>{activeTitle}</div>
+          {editingTitle ? (
+            <div className={styles.titleEdit}>
+              <input
+                ref={titleInputRef}
+                className={styles.titleInput}
+                value={titleDraft}
+                maxLength={200}
+                aria-label="Nazwa rozmowy"
+                onChange={(e) => setTitleDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") void saveTitle();
+                  if (e.key === "Escape") cancelEditTitle();
+                }}
+                onBlur={() => void saveTitle()}
+              />
+              <button
+                type="button"
+                className={styles.titleIconBtn}
+                aria-label="Zapisz nazwę"
+                title="Zapisz"
+                // Fire before the input's blur so the click isn't swallowed.
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => void saveTitle()}
+              >
+                <CheckIcon size={16} />
+              </button>
+              <button
+                type="button"
+                className={styles.titleIconBtn}
+                aria-label="Anuluj zmianę nazwy"
+                title="Anuluj"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={cancelEditTitle}
+              >
+                <CloseIcon size={16} />
+              </button>
+            </div>
+          ) : (
+            <>
+              <div className={styles.columnTitle}>{activeTitle}</div>
+              {activeSession ? (
+                <button
+                  type="button"
+                  className={styles.titleEditToggle}
+                  aria-label="Zmień nazwę rozmowy"
+                  title="Zmień nazwę rozmowy"
+                  onClick={startEditTitle}
+                >
+                  <EditIcon size={16} />
+                </button>
+              ) : null}
+            </>
+          )}
         </div>
 
         <div className={styles.messages}>
