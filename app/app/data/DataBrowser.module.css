@@ -7,7 +7,7 @@
   background: var(--surface);
   border: 1px solid var(--border-soft);
   border-radius: 12px;
-  overflow: hidden;
+  overflow: visible;
 }
 
 /* ── Toolbar ─────────────────────────────────────────────────────────── */
@@ -46,6 +46,11 @@
   background: var(--primary-hover);
 }
 
+.selector:disabled {
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
 .selectorTag {
   font-family: var(--font-ibm-plex-mono), monospace;
   font-size: 11px;
@@ -72,10 +77,13 @@
   border-radius: 10px;
   box-shadow: 0 16px 40px rgba(16, 40, 66, 0.18);
   left: 0;
+  max-height: min(520px, calc(100vh - 150px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 6px;
   position: absolute;
   top: 44px;
-  width: 290px;
+  width: min(360px, calc(100vw - 48px));
   z-index: 40;
 }
 
@@ -136,6 +144,11 @@
   width: 100%;
 }
 
+.searchInput:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
 .spacer {
   flex: 1;
 }
@@ -156,6 +169,13 @@
 
 .exportButton:hover {
   background: #f5f6f8;
+}
+
+.exportButton:disabled {
+  background: #f8f9fb;
+  color: var(--text-muted);
+  cursor: not-allowed;
+  opacity: 0.72;
 }
 
 .chips {
@@ -223,6 +243,36 @@
   z-index: 1;
 }
 
+.thRight {
+  text-align: right;
+}
+
+.sortButton {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  gap: 7px;
+  justify-content: flex-start;
+  padding: 0;
+  text-align: inherit;
+}
+
+.sortButton:hover,
+.sortButtonActive {
+  color: var(--primary);
+}
+
+.sortIndicator {
+  color: var(--text-muted);
+  font-family: var(--font-ibm-plex-mono), monospace;
+  font-size: 10px;
+  min-width: 10px;
+}
+
 .row {
   border-bottom: 1px solid #f0f2f5;
   cursor: pointer;
@@ -247,6 +297,10 @@
 .tdMono {
   font-family: var(--font-ibm-plex-mono), monospace;
   font-weight: 500;
+}
+
+.tdRight {
+  text-align: right;
 }
 
 .tdBadge {
@@ -294,6 +348,50 @@
 }
 
 .loadMore:hover {
+  background: #f5f6f8;
+}
+
+.loadMore:disabled {
+  background: #f8f9fb;
+  color: var(--text-muted);
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
+.statePanel,
+.stateCell {
+  color: var(--text-muted);
+  font-size: 13px;
+  text-align: center;
+}
+
+.statePanel {
+  padding: 42px 20px;
+}
+
+.stateCell {
+  padding: 42px 20px;
+}
+
+.stateTitle {
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+
+.retryButton {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 14px;
+}
+
+.retryButton:hover {
   background: #f5f6f8;
 }
 
