@@ -7,7 +7,7 @@
   background: var(--surface);
   border: 1px solid var(--border-soft);
   border-radius: 12px;
-  overflow: hidden;
+  overflow: visible;
 }
 
 /* ── Toolbar ─────────────────────────────────────────────────────────── */
@@ -77,10 +77,13 @@
   border-radius: 10px;
   box-shadow: 0 16px 40px rgba(16, 40, 66, 0.18);
   left: 0;
+  max-height: min(520px, calc(100vh - 150px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 6px;
   position: absolute;
   top: 44px;
-  width: 290px;
+  width: min(360px, calc(100vw - 48px));
   z-index: 40;
 }
 
