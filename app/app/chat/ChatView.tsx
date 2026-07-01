@@ -17,10 +17,12 @@ import {
   SearchIcon,
   SendIcon,
 } from "../_components/icons";
+import { Combobox } from "../_components/Combobox";
 import {
   createSession,
   dtoToUiSession,
   fetchQuickActions,
+  fetchQuickActionRows,
   fetchSession,
   fetchSessions,
   messagesToUi,
@@ -255,7 +257,10 @@ export function ChatView({
   function submitQa() {
     if (!qaForm) return;
     const value = qaForm.value.trim();
-    if (qaForm.input.required && !value) return;
+    // A row action always needs a selected row; text only when marked required.
+    const mustHaveValue =
+      qaForm.input.required || qaForm.input.type === "row_from_table";
+    if (mustHaveValue && !value) return;
     void runQuickAction(qaForm.key, qaForm.title, value || null);
     setQaForm(null);
   }
@@ -494,23 +499,15 @@ export function ChatView({
                 </div>
                 <label className={styles.qaFormLabel}>{qaForm.input.label}</label>
                 <div className={styles.qaFormField}>
-                  {qaForm.input.type === "select_from_db" ? (
-                    <select
-                      className={styles.qaFormInput}
+                  {qaForm.input.type === "row_from_table" ? (
+                    <Combobox
                       value={qaForm.value}
-                      onChange={(e) =>
-                        setQaForm((f) => (f ? { ...f, value: e.target.value } : f))
+                      onChange={(v) =>
+                        setQaForm((f) => (f ? { ...f, value: v } : f))
                       }
-                    >
-                      <option value="">
-                        {qaForm.input.placeholder ?? "Wybierz…"}
-                      </option>
-                      {(qaForm.input.options ?? []).map((opt) => (
-                        <option key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </option>
-                      ))}
-                    </select>
+                      loadOptions={(q) => fetchQuickActionRows(qaForm.key, q)}
+                      placeholder={`Szukaj: ${qaForm.input.label}…`}
+                    />
                   ) : (
                     <input
                       className={styles.qaFormInput}
@@ -521,7 +518,6 @@ export function ChatView({
                       }
                     />
                   )}
-                  <span className={styles.qaFormCaret}>▼</span>
                 </div>
                 <div className={styles.qaFormActions}>
                   <button type="button" className={styles.btnGhost} onClick={() => setQaForm(null)}>

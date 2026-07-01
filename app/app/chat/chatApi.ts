@@ -3,7 +3,10 @@ import type {
   SessionDto,
   TokenUsageMetadata,
 } from "@/lib/api/chat-types";
-import type { QuickActionDto } from "@/lib/api/quick-actions-types";
+import type {
+  QuickActionDto,
+  QuickActionOption,
+} from "@/lib/api/quick-actions-types";
 
 import type { UiMessage, UiMetrics, UiSession, UiSource } from "./types";
 
@@ -72,12 +75,24 @@ export async function setWebSearch(
   return data.session;
 }
 
-/** Active quick actions for the composer bar (options resolved server-side). */
+/** Active quick actions for the composer bar. */
 export async function fetchQuickActions(): Promise<QuickActionDto[]> {
   const data = await apiFetch<{ actions: QuickActionDto[] }>(
     "/api/quick-actions",
   );
   return data.actions;
+}
+
+/** Searches the rows of a `row_from_table` quick action (chat combobox source). */
+export async function fetchQuickActionRows(
+  key: string,
+  query: string,
+): Promise<QuickActionOption[]> {
+  const params = new URLSearchParams({ q: query });
+  const data = await apiFetch<{ rows: QuickActionOption[] }>(
+    `/api/quick-actions/${encodeURIComponent(key)}/rows?${params.toString()}`,
+  );
+  return data.rows;
 }
 
 // ── Streaming a chat turn (NDJSON) ───────────────────────────────────────────
