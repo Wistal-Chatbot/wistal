@@ -349,8 +349,15 @@ export function QuickActionsManager() {
   }
 
   return (
-    <div className={styles.manageGrid}>
-      <div className={styles.tableCard}>
+    <>
+      <p className={styles.sectionIntro}>
+        Szybkie akcje to konfigurowalne przyciski w oknie czatu — pojawiają się w
+        pasku „Szybkie akcje” nad polem wiadomości. Kliknięcie uruchamia gotowy
+        prompt (opcjonalnie z wartością wskazaną przez użytkownika), a wynik wraca
+        od razu jako odpowiedź w rozmowie.
+      </p>
+      <div className={styles.manageGrid}>
+        <div className={styles.tableCard}>
         <div className={styles.manageHead}>
           <div className={styles.tableCardTitle}>Szybkie akcje</div>
           <span className={styles.manageCount}>{items.length} pozycji</span>
@@ -661,5 +668,6 @@ export function QuickActionsManager() {
         </div>
       </div>
     </div>
+    </>
   );
 }
