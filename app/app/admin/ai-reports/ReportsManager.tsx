@@ -13,6 +13,7 @@ import {
   listAiReports,
   updateAiReport,
 } from "./adminApi";
+import { ReportWidgetPreview } from "./ReportWidgetPreview";
 
 interface EditForm {
   name: string;
@@ -279,6 +280,10 @@ export function ReportsManager() {
             className={`${styles.textarea} ${styles.jsonArea}`}
             value={form.htmlWidget}
             onChange={(e) => patchForm({ htmlWidget: e.target.value })}
+          />
+          <ReportWidgetPreview
+            htmlWidget={form.htmlWidget}
+            outputSchemaText={form.outputSchemaText}
           />
 
           <label className={styles.checkRow}>
