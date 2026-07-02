@@ -15,6 +15,7 @@ export async function GET() {
     reportId: r.reportId,
     reportName: r.reportName,
     userName: r.userName ?? r.userEmail ?? null,
+    inputParams: r.inputParams,
     status: r.status,
     createdAt: r.createdAt.toISOString(),
   }));

@@ -192,9 +192,15 @@ Active reports → `{ reports: AiReportPublicDto[] }` (`{ id, name, description,
 
 ### `GET /api/ai-reports/runs`
 The 10 most recent runs **across all users** → `{ runs: AiReportRunDto[] }`
-(`{ id, reportId, reportName, userName, status, createdAt }`). Static segment resolves
-before `:id`.
+(`{ id, reportId, reportName, userName, inputParams, status, createdAt }`). Static
+segment resolves before `:id`.
 - `401` unauthenticated.
+
+### `GET /api/ai-reports/runs/search?q=...&limit=50`
+Search saved report executions **across all users** by report name, user name/email,
+status, or `input_params` text (for example NIP). Returns `{ runs: AiReportRunDto[] }`
+with the same shape as recent runs. `limit` is optional and capped at `100`.
+- `400` invalid query · `401` unauthenticated.
 
 ### `GET /api/ai-reports/runs/:executionId`
 One saved report execution → `{ execution: AiReportExecutionDetailDto }`, including
@@ -301,6 +307,7 @@ POST   /api/data/query
 
 GET    /api/ai-reports
 GET    /api/ai-reports/runs
+GET    /api/ai-reports/runs/search
 GET    /api/ai-reports/runs/:executionId
 GET    /api/ai-reports/:id
 POST   /api/ai-reports/:id/execute
