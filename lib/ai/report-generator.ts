@@ -45,7 +45,7 @@ const saveReportConfigTool: Anthropic.Tool = {
       html_widget: {
         type: "string",
         description:
-          "ZWIĘZŁY fragment HTML (po polsku) renderujący output_data raportu — bez <!DOCTYPE>, <html>, <head> ani <script>. Do wstawiania danych używaj składni Mustache opartej na nazwach pól z output_schema: {{pole}} dla wartości, {{#lista}}…{{/lista}} dla tablic (w środku {{pole_elementu}}, a dla listy wartości prostych {{.}}), {{^pole}}…{{/pole}} gdy pole jest puste. Trzymaj go kompaktowo.",
+          "ZWIĘZŁY, dopracowany fragment HTML dashboardu (po polsku) renderujący output_data raportu — bez <!DOCTYPE>, <html>, <head> ani <script>. Ma wyglądać jak gotowy panel analityczny: nagłówek, karty KPI, sekcje, tabele i proste diagramy CSS-only (paski, skale, osie, badge). Do wstawiania danych używaj składni Mustache opartej na nazwach pól z output_schema: {{pole}} dla wartości, {{#lista}}…{{/lista}} dla tablic (w środku {{pole_elementu}}, a dla listy wartości prostych {{.}}), {{^pole}}…{{/pole}} gdy pole jest puste. Trzymaj go kompaktowo.",
       },
       input_params: {
         type: "object",
@@ -88,7 +88,14 @@ ${bizraportCapability}- **Wyszukiwanie w internecie**: ustaw \`model_config.web_
 - **description** — jedno zdanie, co raport robi.
 - **system_prompt** — pełna instrukcja wykonania raportu: jakie dane pobrać (SQL / BizRaport / web), jak je przetworzyć i jak zbudować wynik ściśle zgodny z \`output_schema\`. Nakazuj opieranie się wyłącznie na pobranych danych (bez zmyślania liczb) i odpowiedzi po polsku.
 - **output_schema** — obiekt JSON opisujący pola wyniku (nazwa → typ), np. \`{ "score": "integer", "risk_level": "string", "recommendation": "string" }\`.
-- **html_widget** — ZWIĘZŁY fragment HTML (po polsku) prezentujący wynik, bez \`<!DOCTYPE>\`/\`<html>\`/\`<head>\`/\`<script>\`. Wstawiaj dane składnią **Mustache** wg nazw pól z \`output_schema\`: \`{{pole}}\` (wartość), \`{{#lista}}…{{/lista}}\` (tablice, w środku \`{{pole_elementu}}\`), \`{{^pole}}…{{/pole}}\` (gdy brak). Placeholdery muszą odpowiadać polom z \`output_schema\`.
+- **html_widget** — ZWIĘZŁY, estetyczny fragment HTML (po polsku) prezentujący wynik jako gotowy **dashboard/panel analityczny**, bez \`<!DOCTYPE>\`/\`<html>\`/\`<head>\`/\`<script>\`. To nie może być sam tekst. Używaj:
+  - nagłówka z nazwą/okresem/parametrami,
+  - kart KPI z dużymi wartościami i krótkim kontekstem,
+  - sekcji tematycznych z wyraźnymi tytułami,
+  - tabel dla list i porównań,
+  - prostych diagramów CSS-only: paski postępu, skale ryzyka, mini wykresy słupkowe, timeline, badge statusów,
+  - neutralnej palety Wistal: granat \`#1E2188\`, tło \`#eaecf0\`, powierzchnie białe, akcenty czerwony/zielony.
+  Wstawiaj dane składnią **Mustache** wg nazw pól z \`output_schema\`: \`{{pole}}\` (wartość), \`{{#lista}}…{{/lista}}\` (tablice, w środku \`{{pole_elementu}}\`), \`{{^pole}}…{{/pole}}\` (gdy brak). Placeholdery muszą odpowiadać polom z \`output_schema\`. Dodawaj czytelne stany puste przez \`{{^lista}}\`.
 - **input_params** — parametry od użytkownika (np. kod klienta / NIP). Pusty obiekt, jeśli raport ich nie potrzebuje.
 - **model_config** — \`{ web_search, tables, uses_company_lookup, max_tokens }\` dopasowane do tego, czego raport faktycznie używa.
 
