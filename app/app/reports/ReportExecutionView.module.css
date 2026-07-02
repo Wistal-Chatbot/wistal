@@ -31,6 +31,44 @@
   margin-bottom: 18px;
 }
 
+.headerActions {
+  align-items: center;
+  display: flex;
+  flex: none;
+  gap: 10px;
+}
+
+.pdfButton {
+  align-items: center;
+  background: var(--primary);
+  border: 0;
+  border-radius: 8px;
+  color: #fff;
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 13px;
+  font-weight: 600;
+  gap: 7px;
+  padding: 10px 14px;
+  white-space: nowrap;
+}
+
+.pdfButton:hover {
+  background: var(--primary-hover);
+}
+
+.pdfButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+.pdfError {
+  color: var(--accent-red);
+  font-size: 12px;
+  margin: -8px 0 14px;
+  text-align: right;
+}
+
 .kicker {
   color: var(--text-muted);
   font-family: var(--font-ibm-plex-mono), monospace;
@@ -172,6 +210,18 @@
 
   .header {
     display: block;
+  }
+
+  .headerActions {
+    align-items: flex-start;
+    display: grid;
+    justify-items: start;
+    margin-top: 12px;
+  }
+
+  .pdfError {
+    margin-top: -4px;
+    text-align: left;
   }
 
   .status {
