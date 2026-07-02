@@ -2,23 +2,20 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
-import type {
-  AiReportExecutionResultDto,
-  AiReportPublicDto,
-} from "@/lib/api/ai-reports-types";
+import type { AiReportPublicDto } from "@/lib/api/ai-reports-types";
 import { ChevronLeft } from "../_components/icons";
-import { ReportWidget } from "./ReportWidget";
 import styles from "./ReportRunner.module.css";
 import { executeReport, getReport } from "./reportsApi";
 
 export function ReportRunner({ reportId }: { reportId: string }) {
+  const router = useRouter();
   const [report, setReport] = useState<AiReportPublicDto | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [values, setValues] = useState<Record<string, string>>({});
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
-  const [result, setResult] = useState<AiReportExecutionResultDto | null>(null);
 
   useEffect(() => {
     void (async () => {
@@ -45,7 +42,8 @@ export function ReportRunner({ reportId }: { reportId: string }) {
     setRunning(true);
     setRunError(null);
     try {
-      setResult(await executeReport(report.id, values));
+      const result = await executeReport(report.id, values);
+      router.push(`/app/reports/runs/${result.executionId}`);
     } catch (e) {
       setRunError(e instanceof Error ? e.message : "Nie udało się wykonać raportu.");
     } finally {
@@ -110,18 +108,6 @@ export function ReportRunner({ reportId }: { reportId: string }) {
               {running ? "Generowanie…" : "Uruchom raport"}
             </button>
           </div>
-
-          {result ? (
-            <div className={styles.resultWrap}>
-              <ReportWidget
-                htmlWidget={result.htmlWidget}
-                outputData={result.outputData}
-              />
-              <div className={styles.resultMeta}>
-                Czas generowania: {(result.executionMs / 1000).toFixed(1)} s
-              </div>
-            </div>
-          ) : null}
         </>
       )}
     </div>

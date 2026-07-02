@@ -1,4 +1,5 @@
 import type {
+  AiReportExecutionDetailDto,
   AiReportExecutionResultDto,
   AiReportPublicDto,
   AiReportRunDto,
@@ -35,6 +36,21 @@ export async function listReports(): Promise<AiReportPublicDto[]> {
 export async function listRuns(): Promise<AiReportRunDto[]> {
   const data = await apiFetch<{ runs: AiReportRunDto[] }>("/api/ai-reports/runs");
   return data.runs;
+}
+
+export async function searchRuns(query: string): Promise<AiReportRunDto[]> {
+  const params = new URLSearchParams({ q: query, limit: "50" });
+  const data = await apiFetch<{ runs: AiReportRunDto[] }>(
+    `/api/ai-reports/runs/search?${params.toString()}`,
+  );
+  return data.runs;
+}
+
+export async function getRun(executionId: string): Promise<AiReportExecutionDetailDto> {
+  const data = await apiFetch<{ execution: AiReportExecutionDetailDto }>(
+    `/api/ai-reports/runs/${executionId}`,
+  );
+  return data.execution;
 }
 
 export async function getReport(id: string): Promise<AiReportPublicDto> {
