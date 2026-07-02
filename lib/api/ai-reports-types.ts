@@ -185,6 +185,24 @@ export interface AiReportRunDto {
   reportId: string;
   reportName: string;
   userName: string | null;
+  inputParams: unknown;
   status: string;
+  createdAt: string;
+}
+
+/** A saved report execution opened from history or right after generation. */
+export interface AiReportExecutionDetailDto {
+  id: string;
+  reportId: string;
+  reportName: string;
+  userName: string | null;
+  inputParams: unknown;
+  outputData: unknown;
+  htmlWidget: string | null;
+  sqlQueries: string[];
+  tokensUsed: number | null;
+  executionMs: number | null;
+  status: string;
+  errorMessage: string | null;
   createdAt: string;
 }

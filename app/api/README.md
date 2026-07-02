@@ -196,6 +196,13 @@ The 10 most recent runs **across all users** → `{ runs: AiReportRunDto[] }`
 before `:id`.
 - `401` unauthenticated.
 
+### `GET /api/ai-reports/runs/:executionId`
+One saved report execution → `{ execution: AiReportExecutionDetailDto }`, including
+report name, user, params, `output_data`, `html_widget`, status, error, SQL count data,
+token count, execution time, and creation date. Used by the result page opened after a
+run or from "Ostatnie uruchomienia"; it does **not** execute the report again.
+- `401` · `404` unknown execution.
+
 ### `GET /api/ai-reports/:id`
 One active report (params to build the run form) → `{ report: AiReportPublicDto }`.
 - `401` · `404` unknown or inactive.
@@ -294,6 +301,7 @@ POST   /api/data/query
 
 GET    /api/ai-reports
 GET    /api/ai-reports/runs
+GET    /api/ai-reports/runs/:executionId
 GET    /api/ai-reports/:id
 POST   /api/ai-reports/:id/execute
 
