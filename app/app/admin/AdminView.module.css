@@ -557,6 +557,38 @@
   text-align: center;
 }
 
+/* ── Raporty AI: full-width inline editor ────────────────────────────────── */
+
+.editorCard {
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  margin-bottom: 20px;
+  padding: 22px;
+  width: 100%;
+}
+
+/* Monospace variant for JSON / HTML fields (applied alongside .textarea). */
+.jsonArea {
+  font-family: var(--font-ibm-plex-mono), monospace;
+  font-size: 12px;
+  min-height: 140px;
+  white-space: pre;
+}
+
+.actionToggle {
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  margin-right: 14px;
+}
+
+.actionToggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
 /* ── row_from_table builder ──────────────────────────────────────────────── */
 
 .labelRow {
