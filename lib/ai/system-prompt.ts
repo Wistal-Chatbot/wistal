@@ -2,6 +2,8 @@ import "server-only";
 
 import type Anthropic from "@anthropic-ai/sdk";
 
+import { isBizraportConfigured } from "@/lib/bizraport/client";
+
 import { ERP_SCHEMA_DESCRIPTION } from "./erp-schema";
 
 /**
@@ -51,6 +53,17 @@ ${ERP_SCHEMA_DESCRIPTION}
 const WEB_SEARCH_INSTRUCTION = `# Wyszukiwanie w internecie
 W tej rozmowie masz dostępne narzędzie \`web_search\`. Używaj go, gdy pytanie dotyczy informacji spoza bazy ERP — np. aktualnych wydarzeń, danych rynkowych albo informacji o firmach/stronach z internetu. Do danych z ERP nadal używaj \`execute_sql\`. NIGDY nie twierdź, że nie masz dostępu do internetu — to narzędzie jest dostępne.`;
 
+/**
+ * Added when BizRaport is configured. Kept as a separate, uncached block so the
+ * static ERP prompt above stays byte-identical for prompt-cache hits.
+ */
+const BIZRAPORT_INSTRUCTION = `# Dane o firmach (BizRaport)
+Masz dostępne narzędzia \`get_company_info\` oraz \`search_company\`, które pobierają ZEWNĘTRZNE dane o polskich firmach z BizRaport: dane rejestrowe (KRS), dane finansowe (przychody, zysk netto, EBITDA, wskaźniki rentowności, modele ryzyka upadłości), opis działalności, powiązania i strukturę udziałowców, wpisy z Monitora Sądowego oraz KRZ.
+- Używaj tych narzędzi, gdy pytanie dotyczy kondycji, wiarygodności lub profilu firmy (np. audyt/analiza klienta, sprawdzenie kontrahenta).
+- Jeśli firma jest klientem z ERP, najpierw ustal jej NIP zapytaniem SELECT do \`kontrahenci\`, a następnie wywołaj \`get_company_info\` z tym NIP.
+- Jeśli nie znasz NIP ani KRS, użyj \`search_company\` po nazwie, aby uzyskać numer KRS, a potem \`get_company_info\`.
+- Wyraźnie odróżniaj te dane ZEWNĘTRZNE od danych z naszego ERP. Nie zmyślaj wartości — opieraj się wyłącznie na tym, co zwróci narzędzie.`;
+
 export function buildSystemPrompt(
   webSearchEnabled: boolean,
 ): Anthropic.TextBlockParam[] {
@@ -61,6 +74,9 @@ export function buildSystemPrompt(
       cache_control: { type: "ephemeral" },
     },
   ];
+  if (isBizraportConfigured()) {
+    blocks.push({ type: "text", text: BIZRAPORT_INSTRUCTION });
+  }
   if (webSearchEnabled) {
     blocks.push({ type: "text", text: WEB_SEARCH_INSTRUCTION });
   }

@@ -180,6 +180,51 @@ Every executed query is audited with `source='manual_browser'`.
 
 ---
 
+## Raporty AI (run) — `/api/ai-reports`
+
+User-facing report execution. Any signed-in user. Wire shapes in
+[`lib/api/ai-reports-types.ts`](../../lib/api/ai-reports-types.ts).
+
+### `GET /api/ai-reports`
+Active reports → `{ reports: AiReportPublicDto[] }` (`{ id, name, description, inputParams }`
+— **no** `system_prompt`).
+- `401` unauthenticated.
+
+### `GET /api/ai-reports/runs`
+The 10 most recent runs **across all users** → `{ runs: AiReportRunDto[] }`
+(`{ id, reportId, reportName, userName, inputParams, status, createdAt }`). Static
+segment resolves before `:id`.
+- `401` unauthenticated.
+
+### `GET /api/ai-reports/runs/search?q=...&limit=50`
+Search saved report executions **across all users** by report name, user name/email,
+status, or `input_params` text (for example NIP). Returns `{ runs: AiReportRunDto[] }`
+with the same shape as recent runs. `limit` is optional and capped at `100`.
+- `400` invalid query · `401` unauthenticated.
+
+### `GET /api/ai-reports/runs/:executionId`
+One saved report execution → `{ execution: AiReportExecutionDetailDto }`, including
+report name, user, params, `output_data`, `html_widget`, status, error, SQL count data,
+token count, execution time, and creation date. Used by the result page opened after a
+run or from "Ostatnie uruchomienia"; it does **not** execute the report again.
+- `401` · `404` unknown execution.
+
+### `GET /api/ai-reports/:id`
+One active report (params to build the run form) → `{ report: AiReportPublicDto }`.
+- `401` · `404` unknown or inactive.
+
+### `POST /api/ai-reports/:id/execute`
+Run a report. Body `{ input_params: Record<string,string> }`. Flow: rate limit (shared
+chat keys, **5/min · 200/day**) → monthly AI token check → load active report → validate
+required `input_params` → agentic run (`execute_sql` + BizRaport + web search per
+`model_config`; SQL audited `source='ai_report'`) → the model returns JSON via the
+`submit_report` tool → save `ai_report_executions` → `{ executionId, output_data,
+html_widget, execution_ms }`.
+- `400` invalid body / missing required param · `401` · `404` unknown or inactive ·
+  `429` rate limit or `{ code: "AI_MONTHLY_TOKEN_LIMIT_EXCEEDED" }` · `502` execution failed.
+
+---
+
 ## Admin — `/api/admin` (all `requireAdmin`)
 
 ### `GET /api/admin/quick-actions`
@@ -200,6 +245,36 @@ Update an action (all fields optional — only sent keys change). Returns
 
 ### `DELETE /api/admin/quick-actions/:id`
 Delete an action. Returns `{ ok: true }`.
+- `404` not found.
+
+### Raporty AI — `/api/admin/ai-reports`
+Admin backend for AI reports. Wire shapes / validation in
+[`lib/api/ai-reports-types.ts`](../../lib/api/ai-reports-types.ts); the report `id`
+is a UUID. A report row is `AdminAiReportDto`
+(`{ id, name, description, systemPrompt, outputSchema, htmlWidget, inputParams, modelConfig, isActive, createdAt, updatedAt }`).
+
+#### `GET /api/admin/ai-reports`
+Every report (draft or active), newest first → `{ reports: AdminAiReportDto[] }`.
+
+#### `POST /api/admin/ai-reports/generate`
+Generate a report config from a plain-language brief and save it as a **draft**
+(`isActive=false`). Body `{ description: string(1–2000) }`. The generation model
+(`ANTHROPIC_CHAT_MODEL`) returns `name`, `systemPrompt`, `outputSchema`, `htmlWidget`,
+`inputParams`, `modelConfig` via a forced tool call
+([`lib/ai/report-generator.ts`](../../lib/ai/report-generator.ts)); the generator may
+wire ERP SQL, BizRaport, and web search into `modelConfig`. Returns
+`201 { report: AdminAiReportDto }`.
+- `400` invalid body · `429` monthly AI token limit (`{ code: "AI_MONTHLY_TOKEN_LIMIT_EXCEEDED" }`)
+  · `502` generation failed.
+
+#### `PATCH /api/admin/ai-reports/:id`
+Edit fields and/or activate. Body = any subset of
+`{ name, description, systemPrompt, outputSchema, htmlWidget, inputParams, modelConfig, isActive }`
+(at least one; activate with `isActive: true`). Returns `{ report: AdminAiReportDto }`.
+- `400` invalid data · `404` unknown id.
+
+#### `DELETE /api/admin/ai-reports/:id`
+Delete a report. Returns `{ ok: true }`.
 - `404` not found.
 
 ### `GET /api/admin/schema`
@@ -230,9 +305,22 @@ POST   /api/quick-actions/:key/run                      # NDJSON stream
 GET    /api/data/schema
 POST   /api/data/query
 
+GET    /api/ai-reports
+GET    /api/ai-reports/runs
+GET    /api/ai-reports/runs/search
+GET    /api/ai-reports/runs/:executionId
+GET    /api/ai-reports/:id
+POST   /api/ai-reports/:id/execute
+
 GET    /api/admin/quick-actions
 POST   /api/admin/quick-actions
 PATCH  /api/admin/quick-actions/:id
 DELETE /api/admin/quick-actions/:id
+
+GET    /api/admin/ai-reports
+POST   /api/admin/ai-reports/generate
+PATCH  /api/admin/ai-reports/:id
+DELETE /api/admin/ai-reports/:id
+
 GET    /api/admin/schema
 ```

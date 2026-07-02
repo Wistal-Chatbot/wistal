@@ -1,0 +1,230 @@
+.page {
+  max-width: 1180px;
+  padding: 24px 28px;
+}
+
+.backLink {
+  align-items: center;
+  color: var(--primary);
+  display: inline-flex;
+  font-size: 13px;
+  font-weight: 600;
+  gap: 7px;
+  margin-bottom: 16px;
+}
+
+.stateMsg {
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 22px;
+  text-align: center;
+}
+
+.header {
+  align-items: flex-start;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+
+.headerActions {
+  align-items: center;
+  display: flex;
+  flex: none;
+  gap: 10px;
+}
+
+.pdfButton {
+  align-items: center;
+  background: var(--primary);
+  border: 0;
+  border-radius: 8px;
+  color: #fff;
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 13px;
+  font-weight: 600;
+  gap: 7px;
+  padding: 10px 14px;
+  white-space: nowrap;
+}
+
+.pdfButton:hover {
+  background: var(--primary-hover);
+}
+
+.pdfButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+.pdfError {
+  color: var(--accent-red);
+  font-size: 12px;
+  margin: -8px 0 14px;
+  text-align: right;
+}
+
+.kicker {
+  color: var(--text-muted);
+  font-family: var(--font-ibm-plex-mono), monospace;
+  font-size: 11px;
+  letter-spacing: 0;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+}
+
+.title {
+  color: var(--text-primary);
+  font-size: 22px;
+  line-height: 1.25;
+  margin: 0;
+}
+
+.layout {
+  align-items: start;
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(0, 1fr) 320px;
+}
+
+.result {
+  min-width: 0;
+}
+
+.metaPanel,
+.errorPanel {
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+}
+
+.metaPanel {
+  padding: 18px;
+}
+
+.errorPanel {
+  color: var(--accent-red);
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 24px;
+}
+
+.metaTitle,
+.paramsTitle {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.metaTitle {
+  margin-bottom: 14px;
+}
+
+.paramsTitle {
+  margin: 18px 0 8px;
+}
+
+.metaList {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+}
+
+.metaList div {
+  border-bottom: 1px solid #eef1f5;
+  padding-bottom: 10px;
+}
+
+.metaList div:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.metaList dt {
+  color: var(--text-muted);
+  font-size: 11px;
+  margin-bottom: 3px;
+}
+
+.metaList dd {
+  color: var(--text-primary);
+  font-size: 13px;
+  margin: 0;
+  word-break: break-word;
+}
+
+.jsonBlock {
+  background: #f6f8fb;
+  border: 1px solid #e5e9ef;
+  border-radius: 8px;
+  color: var(--text-secondary);
+  font-family: var(--font-ibm-plex-mono), monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  margin: 0;
+  overflow-x: auto;
+  padding: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.status {
+  border-radius: 20px;
+  display: inline-block;
+  flex: none;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+}
+
+.statusDone {
+  background: #e6f2ec;
+  color: #1f6b4a;
+}
+
+.statusPending {
+  background: #fbf0dd;
+  color: #9a6a18;
+}
+
+.statusError {
+  background: #f7e7e4;
+  color: #b4402e;
+}
+
+@media (max-width: 920px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 820px) {
+  .page {
+    padding: 18px 16px;
+  }
+
+  .header {
+    display: block;
+  }
+
+  .headerActions {
+    align-items: flex-start;
+    display: grid;
+    justify-items: start;
+    margin-top: 12px;
+  }
+
+  .pdfError {
+    margin-top: -4px;
+    text-align: left;
+  }
+
+  .status {
+    margin-top: 12px;
+  }
+}

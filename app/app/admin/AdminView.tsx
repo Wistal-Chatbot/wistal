@@ -2,11 +2,11 @@ import Link from "next/link";
 import {
   adminStats,
   adminUsers,
-  aiReports,
   systemStatus,
   weeklyQueries,
 } from "@/lib/mock-data";
 import { QuickActionsManager } from "./quick-actions/QuickActionsManager";
+import { ReportsManager } from "./ai-reports/ReportsManager";
 import styles from "./AdminView.module.css";
 
 export type AdminTab = "overview" | "reports" | "quick";
@@ -33,7 +33,7 @@ export function AdminView({ active }: { active: AdminTab }) {
       </div>
 
       {active === "overview" ? <Overview /> : null}
-      {active === "reports" ? <ReportsAdmin /> : null}
+      {active === "reports" ? <ReportsManager /> : null}
       {active === "quick" ? <QuickActionsManager /> : null}
     </div>
   );
@@ -128,75 +128,6 @@ function Overview() {
         </table>
       </div>
     </>
-  );
-}
-
-function ReportsAdmin() {
-  return (
-    <div className={styles.manageGrid}>
-      <div className={styles.tableCard}>
-        <div className={styles.manageHead}>
-          <div className={styles.tableCardTitle}>Skonfigurowane raporty AI</div>
-          <span className={styles.manageCount}>{aiReports.length} pozycji</span>
-        </div>
-        <table className={styles.table}>
-          <thead>
-            <tr>
-              <th className={styles.th}>NAZWA</th>
-              <th className={styles.th}>TABELE</th>
-              <th className={styles.th}>STATUS</th>
-              <th className={styles.th} />
-            </tr>
-          </thead>
-          <tbody>
-            {aiReports.map((report) => (
-              <tr className={styles.tr} key={report.id}>
-                <td className={styles.td}>
-                  <div className={styles.rowName}>{report.name}</div>
-                  <div className={styles.rowDesc}>{report.desc}</div>
-                </td>
-                <td className={styles.tdMonoSmall}>{report.tables}</td>
-                <td className={styles.td}>
-                  <span className={report.active ? styles.pillActive : styles.pillIdle}>
-                    {report.active ? "Aktywny" : "Nieaktywny"}
-                  </span>
-                </td>
-                <td className={styles.tdActions}>
-                  <span className={styles.actionEdit}>Edytuj</span>
-                  <span className={styles.actionDelete}>Usuń</span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      <div className={styles.formCard}>
-        <div className={styles.formTitle}>Nowy raport AI</div>
-        <div className={styles.formHint}>
-          Opisz raport w języku naturalnym. System wygeneruje prompt, schemat wyjścia,
-          widget HTML i konfigurację modelu.
-        </div>
-        <label className={styles.formLabel}>Opis raportu</label>
-        <textarea
-          className={styles.textarea}
-          placeholder="np. Oceń wiarygodność płatniczą kontrahenta na podstawie historii faktur i limitów…"
-        />
-        <div className={styles.checklist}>
-          {["System prompt", "Schemat wyjścia (JSON)", "Widget HTML", "Konfiguracja modelu"].map(
-            (item) => (
-              <div className={styles.checkItem} key={item}>
-                <span className={styles.checkBox}>✓</span>
-                {item}
-              </div>
-            ),
-          )}
-        </div>
-        <button type="button" className={styles.submitButton}>
-          Wygeneruj raport
-        </button>
-      </div>
-    </div>
   );
 }
 
