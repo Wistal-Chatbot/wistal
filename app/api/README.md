@@ -202,6 +202,36 @@ Update an action (all fields optional — only sent keys change). Returns
 Delete an action. Returns `{ ok: true }`.
 - `404` not found.
 
+### Raporty AI — `/api/admin/ai-reports`
+Admin backend for AI reports. Wire shapes / validation in
+[`lib/api/ai-reports-types.ts`](../../lib/api/ai-reports-types.ts); the report `id`
+is a UUID. A report row is `AdminAiReportDto`
+(`{ id, name, description, systemPrompt, outputSchema, htmlWidget, inputParams, modelConfig, isActive, createdAt, updatedAt }`).
+
+#### `GET /api/admin/ai-reports`
+Every report (draft or active), newest first → `{ reports: AdminAiReportDto[] }`.
+
+#### `POST /api/admin/ai-reports/generate`
+Generate a report config from a plain-language brief and save it as a **draft**
+(`isActive=false`). Body `{ description: string(1–2000) }`. The generation model
+(`ANTHROPIC_CHAT_MODEL`) returns `name`, `systemPrompt`, `outputSchema`, `htmlWidget`,
+`inputParams`, `modelConfig` via a forced tool call
+([`lib/ai/report-generator.ts`](../../lib/ai/report-generator.ts)); the generator may
+wire ERP SQL, BizRaport, and web search into `modelConfig`. Returns
+`201 { report: AdminAiReportDto }`.
+- `400` invalid body · `429` monthly AI token limit (`{ code: "AI_MONTHLY_TOKEN_LIMIT_EXCEEDED" }`)
+  · `502` generation failed.
+
+#### `PATCH /api/admin/ai-reports/:id`
+Edit fields and/or activate. Body = any subset of
+`{ name, description, systemPrompt, outputSchema, htmlWidget, inputParams, modelConfig, isActive }`
+(at least one; activate with `isActive: true`). Returns `{ report: AdminAiReportDto }`.
+- `400` invalid data · `404` unknown id.
+
+#### `DELETE /api/admin/ai-reports/:id`
+Delete a report. Returns `{ ok: true }`.
+- `404` not found.
+
 ### `GET /api/admin/schema`
 Public (ERP) tables with their columns and primary key, for the quick-action
 builder → `{ tables }`.
@@ -234,5 +264,11 @@ GET    /api/admin/quick-actions
 POST   /api/admin/quick-actions
 PATCH  /api/admin/quick-actions/:id
 DELETE /api/admin/quick-actions/:id
+
+GET    /api/admin/ai-reports
+POST   /api/admin/ai-reports/generate
+PATCH  /api/admin/ai-reports/:id
+DELETE /api/admin/ai-reports/:id
+
 GET    /api/admin/schema
 ```
