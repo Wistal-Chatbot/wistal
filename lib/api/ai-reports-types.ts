@@ -69,6 +69,18 @@ export interface ReportConfigDraft {
 
 // ── Admin DTO ────────────────────────────────────────────────────────────────
 
+/** Editable fields the admin panel PATCHes (subset; matches `adminAiReportUpdateSchema`). */
+export type AiReportUpdatePayload = Partial<{
+  name: string;
+  description: string | null;
+  systemPrompt: string;
+  outputSchema: Record<string, unknown>;
+  inputParams: Record<string, unknown>;
+  modelConfig: Record<string, unknown>;
+  htmlWidget: string | null;
+  isActive: boolean;
+}>;
+
 /** Full admin-facing view of a report (admins may see the prompt + config). */
 export interface AdminAiReportDto {
   id: string;
