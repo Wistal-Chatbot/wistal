@@ -180,6 +180,38 @@ Every executed query is audited with `source='manual_browser'`.
 
 ---
 
+## Raporty AI (run) — `/api/ai-reports`
+
+User-facing report execution. Any signed-in user. Wire shapes in
+[`lib/api/ai-reports-types.ts`](../../lib/api/ai-reports-types.ts).
+
+### `GET /api/ai-reports`
+Active reports → `{ reports: AiReportPublicDto[] }` (`{ id, name, description, inputParams }`
+— **no** `system_prompt`).
+- `401` unauthenticated.
+
+### `GET /api/ai-reports/runs`
+The 10 most recent runs **across all users** → `{ runs: AiReportRunDto[] }`
+(`{ id, reportId, reportName, userName, status, createdAt }`). Static segment resolves
+before `:id`.
+- `401` unauthenticated.
+
+### `GET /api/ai-reports/:id`
+One active report (params to build the run form) → `{ report: AiReportPublicDto }`.
+- `401` · `404` unknown or inactive.
+
+### `POST /api/ai-reports/:id/execute`
+Run a report. Body `{ input_params: Record<string,string> }`. Flow: rate limit (shared
+chat keys, **5/min · 200/day**) → monthly AI token check → load active report → validate
+required `input_params` → agentic run (`execute_sql` + BizRaport + web search per
+`model_config`; SQL audited `source='ai_report'`) → the model returns JSON via the
+`submit_report` tool → save `ai_report_executions` → `{ executionId, output_data,
+html_widget, execution_ms }`.
+- `400` invalid body / missing required param · `401` · `404` unknown or inactive ·
+  `429` rate limit or `{ code: "AI_MONTHLY_TOKEN_LIMIT_EXCEEDED" }` · `502` execution failed.
+
+---
+
 ## Admin — `/api/admin` (all `requireAdmin`)
 
 ### `GET /api/admin/quick-actions`
@@ -259,6 +291,11 @@ POST   /api/quick-actions/:key/run                      # NDJSON stream
 
 GET    /api/data/schema
 POST   /api/data/query
+
+GET    /api/ai-reports
+GET    /api/ai-reports/runs
+GET    /api/ai-reports/:id
+POST   /api/ai-reports/:id/execute
 
 GET    /api/admin/quick-actions
 POST   /api/admin/quick-actions

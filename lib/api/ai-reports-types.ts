@@ -127,3 +127,64 @@ export function serializeAdminAiReport(row: {
     updatedAt: row.updatedAt.toISOString(),
   };
 }
+
+// ── User-facing (run a report) ───────────────────────────────────────────────
+
+/** One user-supplied parameter descriptor from a report's `input_params` blob. */
+export interface AiReportInputParam {
+  type?: string;
+  label?: string;
+  placeholder?: string;
+  required?: boolean;
+  description?: string;
+}
+
+/** What users see: no `system_prompt`, no raw `model_config`. */
+export interface AiReportPublicDto {
+  id: string;
+  name: string;
+  description: string | null;
+  /** Map of param name → descriptor, used to build the run form. */
+  inputParams: Record<string, AiReportInputParam>;
+}
+
+export function serializePublicAiReport(row: {
+  id: string;
+  name: string;
+  description: string | null;
+  inputParams: unknown;
+}): AiReportPublicDto {
+  const params =
+    row.inputParams && typeof row.inputParams === "object"
+      ? (row.inputParams as Record<string, AiReportInputParam>)
+      : {};
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    inputParams: params,
+  };
+}
+
+/** `POST /api/ai-reports/:id/execute` body — user-supplied param values. */
+export const aiReportExecuteSchema = z.object({
+  input_params: z.record(z.string(), z.string()).optional().default({}),
+});
+
+/** Execute response: the rendered output + the report's widget template. */
+export interface AiReportExecutionResultDto {
+  executionId: string;
+  outputData: unknown;
+  htmlWidget: string | null;
+  executionMs: number;
+}
+
+/** A recent run shown on the reports list (across all users). */
+export interface AiReportRunDto {
+  id: string;
+  reportId: string;
+  reportName: string;
+  userName: string | null;
+  status: string;
+  createdAt: string;
+}
