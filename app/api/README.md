@@ -281,6 +281,17 @@ Delete a report. Returns `{ ok: true }`.
 Public (ERP) tables with their columns and primary key, for the quick-action
 builder → `{ tables }`.
 
+### `GET /api/admin/overview`
+Aggregated stats for the admin „Przegląd" page. Wire shapes in
+[`lib/api/admin-overview-types.ts`](../../lib/api/admin-overview-types.ts); queries in
+[`lib/db/queries/admin-stats.ts`](../../lib/db/queries/admin-stats.ts). Returns
+**display-ready** `AdminOverviewResponse`
+(`{ stats, weeklyQueries, systemStatus, users }`) — KPI tiles, the 7-day query chart
+(Warsaw days, today highlighted), live DB/AI-provider status, and the busiest active
+users this month. The „Zużycie AI" tile's *used tokens* is a **mock** placeholder
+(the monthly limit is real); it will move to the Anthropic Admin usage API.
+- `500` load failed.
+
 ---
 
 ## Endpoint index
@@ -323,4 +334,5 @@ PATCH  /api/admin/ai-reports/:id
 DELETE /api/admin/ai-reports/:id
 
 GET    /api/admin/schema
+GET    /api/admin/overview
 ```
