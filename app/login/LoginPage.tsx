@@ -22,7 +22,7 @@ type Step = "email" | "code";
 type SubmitState = "idle" | "submitting";
 
 type LoginPageProps = {
-  allowNonWistalEmails: boolean;
+  allowsExternalEmails: boolean;
 };
 
 function normalizeEmail(value: string) {
@@ -43,7 +43,7 @@ function errorForStatus(status: number, fallback: string) {
   return fallback || "Nie udało się wykonać operacji. Spróbuj ponownie.";
 }
 
-export function LoginPage({ allowNonWistalEmails }: LoginPageProps) {
+export function LoginPage({ allowsExternalEmails }: LoginPageProps) {
   const router = useRouter();
   const [step, setStep] = useState<Step>("email");
   const [email, setEmail] = useState("");
@@ -95,7 +95,7 @@ export function LoginPage({ allowNonWistalEmails }: LoginPageProps) {
     setError("");
     setInfo("");
 
-    if (!allowNonWistalEmails && !normalizedEmail.endsWith(ALLOWED_DOMAIN)) {
+    if (!allowsExternalEmails && !normalizedEmail.endsWith(ALLOWED_DOMAIN)) {
       setError("Dostęp tylko dla adresów @wistal.com.pl.");
       return;
     }
@@ -256,7 +256,7 @@ export function LoginPage({ allowNonWistalEmails }: LoginPageProps) {
           {step === "email" ? (
             <form className={styles.form} onSubmit={submitEmail}>
               <p className={styles.helpText}>
-                {allowNonWistalEmails
+                {allowsExternalEmails
                   ? "Podaj adres e-mail. Wyślemy jednorazowy kod dostępu."
                   : "Podaj służbowy adres e-mail. Wyślemy jednorazowy kod dostępu."}
               </p>
@@ -286,7 +286,7 @@ export function LoginPage({ allowNonWistalEmails }: LoginPageProps) {
                 {isSubmitting ? "Wysyłanie kodu..." : "Wyślij kod jednorazowy"}
               </button>
               <p className={styles.domainNote}>
-                {allowNonWistalEmails
+                {allowsExternalEmails
                   ? "Logowanie zewnętrznych adresów jest włączone."
                   : "Dostęp tylko dla domeny @wistal.com.pl"}
               </p>
