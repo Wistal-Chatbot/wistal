@@ -20,6 +20,8 @@ export interface AdminStatDto {
 export interface WeeklyBarDto {
   day: string;
   pct: number;
+  /** Actual query count for the day (shown on hover). */
+  count: number;
   highlight?: boolean;
 }
 

@@ -71,6 +71,9 @@ export function OverviewPanel() {
           <div className={styles.chart}>
             {weeklyQueries.map((bar, i) => (
               <div className={styles.chartCol} key={`${bar.day}-${i}`}>
+                <span className={styles.chartTooltip}>
+                  {bar.count.toLocaleString("pl-PL")}
+                </span>
                 <div
                   className={bar.highlight ? styles.chartBarActive : styles.chartBar}
                   style={{ height: `${bar.pct}%` }}

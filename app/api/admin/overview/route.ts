@@ -144,6 +144,7 @@ function buildWeekly(rows: DailyCount[]): WeeklyBarDto[] {
   return rows.map((r, i) => ({
     day: PL_DOW[new Date(`${r.date}T12:00:00Z`).getUTCDay()],
     pct: Math.round((r.count / max) * 100),
+    count: r.count,
     highlight: i === rows.length - 1,
   }));
 }
