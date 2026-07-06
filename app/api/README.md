@@ -12,11 +12,16 @@ the endpoints that actually exist in the code. For the intended/full backend des
 
 ## Conventions
 
-- **Auth.** Session is a JWT in an `HttpOnly` cookie. Most handlers call
+- **Auth.** Session is a JWT accepted two ways: an `HttpOnly` cookie (browser
+  app) **or** an `Authorization: Bearer <jwt>` header (the Outlook task pane,
+  which runs in a third-party iframe where the cookie is unreliable). Both are
+  resolved in one place — `getSessionPayload()` — with the header taking
+  precedence, so every handler supports both without changes. Most handlers call
   `getCurrentUser()` and return `401 { error }` when there is no valid session.
   Admin handlers use `requireAdmin()`: `401` when unauthenticated, `403` when
   authenticated but not an admin (`Brak uprawnień.`). Login is restricted to
-  `@wistal.com.pl`.
+  `@wistal.com.pl`. `POST /api/auth/verify-otp` accepts an optional
+  `issueToken: true` to also return the raw JWT (for the panel's `localStorage`).
 - **Bodies & validation.** JSON in, JSON out. Bodies are validated with Zod;
   malformed JSON → `400 { error: "Nieprawidłowe żądanie." }`, invalid fields →
   `400` with a Polish message.

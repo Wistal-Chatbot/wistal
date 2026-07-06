@@ -10,6 +10,9 @@ import { loginUser } from "@/lib/auth/users";
 const bodySchema = z.object({
   email: z.string().email(),
   code: z.string().regex(/^\d{6}$/),
+  // The Outlook task pane can't rely on the HttpOnly cookie (third-party iframe),
+  // so it asks for the raw JWT to store in localStorage and send as a Bearer.
+  issueToken: z.boolean().optional(),
 });
 
 function isOldWistalConstraintError(error: unknown): boolean {
@@ -115,5 +118,8 @@ export async function POST(request: Request) {
       name: user.name,
       isAdmin: user.isAdmin,
     },
+    // Only returned when explicitly requested (the Outlook panel); the cookie is
+    // still set above, so the browser app is unaffected.
+    ...(parsed.data.issueToken ? { token } : {}),
   });
 }
