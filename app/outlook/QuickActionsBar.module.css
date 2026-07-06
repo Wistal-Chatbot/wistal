@@ -1,0 +1,149 @@
+.wrap {
+  display: flex;
+  flex-direction: column;
+}
+
+.chips {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.chipsLabel {
+  color: var(--placeholder);
+  font-family: var(--font-ibm-plex-mono), monospace;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  margin-right: 2px;
+  width: 100%;
+}
+
+.chip {
+  align-items: center;
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: 9px;
+  color: #3a434f;
+  cursor: pointer;
+  display: flex;
+  font-size: 12px;
+  font-weight: 500;
+  gap: 5px;
+  padding: 6px 10px;
+}
+
+.chip:hover:not(:disabled) {
+  background: #f5f6f8;
+  border-color: var(--border);
+}
+
+.chip:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.caret {
+  color: var(--placeholder);
+  font-size: 10px;
+}
+
+/* ── Inline input form ───────────────────────────────────────────────── */
+
+.form {
+  background: var(--surface);
+  border: 1px solid #cfd9e4;
+  border-radius: 12px;
+  box-shadow: 0 10px 26px rgba(16, 40, 66, 0.12);
+  margin-bottom: 10px;
+  padding: 14px;
+}
+
+.formHead {
+  align-items: center;
+  display: flex;
+  gap: 7px;
+  margin-bottom: 10px;
+}
+
+.formIcon {
+  color: var(--primary);
+  display: flex;
+}
+
+.formTitle {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.formLabel {
+  color: #3a434f;
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.formField {
+  position: relative;
+}
+
+.formInput {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 14px;
+  outline: none;
+  padding: 10px 12px;
+  width: 100%;
+}
+
+.formInput:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(30, 33, 136, 0.12);
+}
+
+.formActions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
+.btnGhost {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: #3a434f;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 7px 14px;
+}
+
+.btnGhost:hover {
+  background: #f5f6f8;
+}
+
+.btnPrimary {
+  background: var(--primary);
+  border: 0;
+  border-radius: 8px;
+  color: #fff;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 7px 16px;
+}
+
+.btnPrimary:hover:not(:disabled) {
+  background: var(--primary-hover);
+}
+
+.btnPrimary:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}

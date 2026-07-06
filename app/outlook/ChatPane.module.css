@@ -1,0 +1,355 @@
+.pane {
+  background: var(--surface);
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* ── Header ───────────────────────────────────────────────────────────── */
+
+.header {
+  align-items: center;
+  background: var(--primary);
+  color: #eaf1f8;
+  display: flex;
+  flex: none;
+  gap: 10px;
+  padding: 10px 12px;
+}
+
+.headerMark {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  color: #fff;
+  display: flex;
+  flex: none;
+  height: 30px;
+  justify-content: center;
+  width: 30px;
+}
+
+.headerText {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.headerTitle {
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.headerUser {
+  color: #c3cdd9;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.headerButton {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.1);
+  border: 0;
+  border-radius: 7px;
+  color: #eaf1f8;
+  cursor: pointer;
+  display: flex;
+  flex: none;
+  height: 30px;
+  justify-content: center;
+  width: 30px;
+}
+
+.headerButton:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.headerButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* ── Messages ─────────────────────────────────────────────────────────── */
+
+.messages {
+  background: #fafbfc;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 14px;
+}
+
+.emptyState {
+  margin: auto 0;
+  padding: 24px 6px;
+  text-align: center;
+}
+
+.emptyTitle {
+  color: var(--text-primary);
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.emptyText {
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.55;
+  margin: 0 auto;
+  max-width: 300px;
+}
+
+/* Bot message */
+
+.botRow {
+  align-items: flex-start;
+  display: flex;
+  gap: 9px;
+  margin-bottom: 18px;
+}
+
+.botAvatar {
+  align-items: center;
+  background: #eef1f5;
+  border: 1px solid #e2e6ec;
+  border-radius: 9px;
+  color: #6b7585;
+  display: flex;
+  flex: none;
+  height: 32px;
+  justify-content: center;
+  width: 32px;
+}
+
+.botBody {
+  flex: 1;
+  min-width: 0;
+}
+
+.botBubble {
+  background: var(--surface);
+  border: 1px solid #e6e9ee;
+  border-radius: 12px;
+  box-shadow: 0 1px 2px rgba(16, 40, 66, 0.04);
+  padding: 12px 14px;
+}
+
+.typing {
+  color: var(--placeholder);
+  font-size: 13.5px;
+}
+
+/* Markdown answers rendered by react-markdown + remark-gfm (mirrors ChatView). */
+.markdown {
+  color: var(--text-primary);
+  font-size: 13.5px;
+  line-height: 1.6;
+}
+
+.markdown > :first-child {
+  margin-top: 0;
+}
+
+.markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown p {
+  margin: 0 0 10px;
+}
+
+.markdown strong {
+  font-weight: 600;
+}
+
+.markdown ul,
+.markdown ol {
+  margin: 0 0 10px;
+  padding-left: 20px;
+}
+
+.markdown li {
+  margin-bottom: 5px;
+}
+
+.markdown a {
+  color: var(--primary);
+  text-decoration: underline;
+}
+
+.markdown code {
+  background: #eef1f5;
+  border-radius: 4px;
+  font-family: var(--font-ibm-plex-mono), monospace;
+  font-size: 12px;
+  padding: 1px 5px;
+}
+
+.markdown pre {
+  background: #eef1f5;
+  border-radius: 8px;
+  margin: 0 0 10px;
+  overflow-x: auto;
+  padding: 10px 12px;
+}
+
+.markdown pre code {
+  background: none;
+  padding: 0;
+}
+
+.markdown table {
+  border-collapse: collapse;
+  display: block;
+  font-size: 12.5px;
+  margin: 0 0 10px;
+  max-width: 100%;
+  overflow-x: auto;
+  width: max-content;
+}
+
+.markdown th,
+.markdown td {
+  border: 1px solid #d3d8e0;
+  padding: 6px 10px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.markdown th {
+  background: #f4f6f9;
+  color: var(--text-secondary);
+  font-family: var(--font-ibm-plex-mono), monospace;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.markdown td[align="right"],
+.markdown th[align="right"] {
+  font-family: var(--font-ibm-plex-mono), monospace;
+  text-align: right;
+}
+
+.botMeta {
+  align-items: center;
+  color: var(--placeholder);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 11px;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.metaPill {
+  background: #eef1f5;
+  border-radius: 5px;
+  color: var(--text-secondary);
+  font-family: var(--font-ibm-plex-mono), monospace;
+  font-weight: 600;
+  padding: 2px 7px;
+}
+
+.metaMono {
+  font-family: var(--font-ibm-plex-mono), monospace;
+}
+
+.botTime {
+  color: #b3bac4;
+  font-family: var(--font-ibm-plex-mono), monospace;
+  font-size: 11px;
+  margin-top: 6px;
+}
+
+/* User message */
+
+.userRow {
+  align-items: flex-end;
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 18px;
+}
+
+.userBubble {
+  background: var(--primary);
+  border-radius: 12px;
+  color: #eaf1f8;
+  font-size: 13.5px;
+  line-height: 1.5;
+  max-width: 88%;
+  padding: 10px 14px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.userTime {
+  color: #b3bac4;
+  font-family: var(--font-ibm-plex-mono), monospace;
+  font-size: 11px;
+  margin-top: 5px;
+}
+
+/* ── Composer ─────────────────────────────────────────────────────────── */
+
+.composer {
+  background: var(--surface);
+  border-top: 1px solid var(--border-soft);
+  flex: none;
+  padding: 12px 14px;
+}
+
+.inputRow {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.chatInput {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text-primary);
+  flex: 1;
+  font-size: 13.5px;
+  min-width: 0;
+  outline: none;
+  padding: 11px 13px;
+}
+
+.chatInput:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(30, 33, 136, 0.12);
+}
+
+.sendButton {
+  align-items: center;
+  background: var(--primary);
+  border: 0;
+  border-radius: 10px;
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  flex: none;
+  height: 40px;
+  justify-content: center;
+  width: 44px;
+}
+
+.sendButton:hover:not(:disabled) {
+  background: var(--primary-hover);
+}
+
+.sendButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
