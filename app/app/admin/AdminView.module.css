@@ -34,6 +34,26 @@
   color: var(--primary);
 }
 
+/* ── Overview: async states ──────────────────────────────────────────── */
+
+.overviewState,
+.overviewError {
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  font-size: 13px;
+  padding: 40px 20px;
+  text-align: center;
+}
+
+.overviewState {
+  color: var(--text-muted);
+}
+
+.overviewError {
+  color: var(--accent-red);
+}
+
 /* ── Overview: stat cards ────────────────────────────────────────────── */
 
 .statGrid {
