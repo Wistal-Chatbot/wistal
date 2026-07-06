@@ -5,3 +5,4 @@ export * from "./query-audit";
 export * from "./app-settings";
 export * from "./quick-actions";
 export * from "./ai-reports";
+export * from "./admin-stats";

@@ -34,6 +34,26 @@
   color: var(--primary);
 }
 
+/* ── Overview: async states ──────────────────────────────────────────── */
+
+.overviewState,
+.overviewError {
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  font-size: 13px;
+  padding: 40px 20px;
+  text-align: center;
+}
+
+.overviewState {
+  color: var(--text-muted);
+}
+
+.overviewError {
+  color: var(--accent-red);
+}
+
 /* ── Overview: stat cards ────────────────────────────────────────────── */
 
 .statGrid {
@@ -115,6 +135,29 @@
   gap: 8px;
   height: 100%;
   justify-content: flex-end;
+  position: relative;
+}
+
+.chartTooltip {
+  background: var(--text-primary);
+  border-radius: 6px;
+  color: #fff;
+  font-family: var(--font-ibm-plex-mono), monospace;
+  font-size: 11px;
+  left: 50%;
+  opacity: 0;
+  padding: 3px 8px;
+  pointer-events: none;
+  position: absolute;
+  top: -4px;
+  transform: translate(-50%, -100%);
+  transition: opacity 0.12s ease;
+  white-space: nowrap;
+  z-index: 2;
+}
+
+.chartCol:hover .chartTooltip {
+  opacity: 1;
 }
 
 .chartBar,
