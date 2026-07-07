@@ -34,6 +34,11 @@ export function startOfNextMonth(date: Date): Date {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1));
 }
 
+/** Last calendar day of `date`'s month (UTC), e.g. 31 Jul for any July date. */
+export function lastDayOfMonth(date: Date): Date {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0));
+}
+
 function formatPeriod(date: Date): string {
   return new Intl.DateTimeFormat("pl-PL", {
     month: "long",
@@ -75,6 +80,46 @@ export function sumAnthropicUsageTokens(payload: unknown): number | null {
     if (itemTotal === null) return total;
     return (total ?? 0) + itemTotal;
   }, null);
+}
+
+/**
+ * Sums Anthropic Cost Report amounts, returning the total in **cents**, or null
+ * when the payload carries no cost items. Each `data[].results[].amount` is a
+ * decimal string in the lowest currency unit (cents) — e.g. `"123.45"` = 123.45
+ * cents = $1.2345 — so callers divide by 100 to get USD.
+ */
+export function sumAnthropicCostCents(payload: unknown): number | null {
+  if (typeof payload !== "object" || payload === null) return null;
+  const data = (payload as { data?: unknown }).data;
+  if (!Array.isArray(data)) return null;
+
+  let totalCents = 0;
+  let found = false;
+
+  for (const bucket of data) {
+    if (typeof bucket !== "object" || bucket === null) continue;
+    const results = (bucket as { results?: unknown }).results;
+    if (!Array.isArray(results)) continue;
+
+    for (const item of results) {
+      const amount =
+        item && typeof item === "object"
+          ? (item as { amount?: unknown }).amount
+          : undefined;
+      const cents =
+        typeof amount === "string"
+          ? Number(amount)
+          : typeof amount === "number"
+            ? amount
+            : NaN;
+      if (Number.isFinite(cents)) {
+        totalCents += cents;
+        found = true;
+      }
+    }
+  }
+
+  return found ? totalCents : null;
 }
 
 interface BuildMonthlyAiUsageInput {
