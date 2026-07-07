@@ -3,6 +3,7 @@ import "server-only";
 import type Anthropic from "@anthropic-ai/sdk";
 
 import { isBizraportConfigured } from "@/lib/bizraport/client";
+import { isGooglePlacesConfigured } from "@/lib/google-places/client";
 
 import { ERP_SCHEMA_DESCRIPTION } from "./erp-schema";
 
@@ -64,6 +65,17 @@ Masz dostępne narzędzia \`get_company_info\` oraz \`search_company\`, które p
 - Jeśli nie znasz NIP ani KRS, użyj \`search_company\` po nazwie, aby uzyskać numer KRS, a potem \`get_company_info\`.
 - Wyraźnie odróżniaj te dane ZEWNĘTRZNE od danych z naszego ERP. Nie zmyślaj wartości — opieraj się wyłącznie na tym, co zwróci narzędzie.`;
 
+/**
+ * Added when Google Places is configured. Kept as a separate, uncached block so the
+ * static ERP prompt above stays byte-identical for prompt-cache hits.
+ */
+const GOOGLE_RATING_INSTRUCTION = `# Ocena firmy w Google (Google Places)
+Masz dostępne narzędzie \`get_google_rating\`, które pobiera ZEWNĘTRZNĄ ocenę firmy w Google: średnią ocenę (1–5), liczbę ocen oraz link do wizytówki w Mapach Google. NIE zwraca treści pojedynczych opinii/recenzji — wyłącznie ocenę i liczbę ocen.
+- Używaj go, gdy pytanie dotyczy reputacji, oceny lub opinii o firmie w Google.
+- Zapytanie buduj z nazwy firmy. Jeśli firma jest klientem z ERP, najpierw ustal jej nazwę i miasto zapytaniem SELECT do \`kontrahenci\` (\`nazwa\`, \`miasto\`) i przekaż miasto w polu \`miasto\`, aby doprecyzować dopasowanie.
+- Narzędzie może zwrócić kilka dopasowań — wybierz właściwe po adresie/mieście, a przy niepewności dopytaj lub podaj kandydatów.
+- Jeśli firma nie ma ocen, wyraźnie to zaznacz (brak ocen). Wyraźnie odróżniaj tę ocenę ZEWNĘTRZNĄ od danych z naszego ERP i nie zmyślaj wartości.`;
+
 export function buildSystemPrompt(
   webSearchEnabled: boolean,
 ): Anthropic.TextBlockParam[] {
@@ -76,6 +88,9 @@ export function buildSystemPrompt(
   ];
   if (isBizraportConfigured()) {
     blocks.push({ type: "text", text: BIZRAPORT_INSTRUCTION });
+  }
+  if (isGooglePlacesConfigured()) {
+    blocks.push({ type: "text", text: GOOGLE_RATING_INSTRUCTION });
   }
   if (webSearchEnabled) {
     blocks.push({ type: "text", text: WEB_SEARCH_INSTRUCTION });

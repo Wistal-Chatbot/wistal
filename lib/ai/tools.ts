@@ -3,6 +3,7 @@ import "server-only";
 import type Anthropic from "@anthropic-ai/sdk";
 
 import { isBizraportConfigured } from "@/lib/bizraport/client";
+import { isGooglePlacesConfigured } from "@/lib/google-places/client";
 
 /** Claude calls this to run a read-only SELECT against the ERP database. */
 export const executeSqlTool: Anthropic.Tool = {
@@ -80,15 +81,40 @@ export const searchCompanyTool: Anthropic.Tool = {
   },
 };
 
+/** Claude calls this to fetch a company's Google rating (score + rating count). */
+export const getGoogleRatingTool: Anthropic.Tool = {
+  name: "get_google_rating",
+  description:
+    "Pobierz ocenę firmy w Google (średnia ocena 1–5 oraz liczba ocen) na podstawie nazwy. Zwraca do 3 dopasowanych miejsc z oceną i adresem — jeśli jest ich kilka, wybierz właściwe po adresie/mieście. Zbuduj zapytanie z nazwy firmy (dla klienta z ERP dodaj miasto z tabeli kontrahenci). To narzędzie NIE zwraca treści opinii/recenzji — wyłącznie ocenę i liczbę ocen.",
+  input_schema: {
+    type: "object",
+    properties: {
+      query: {
+        type: "string",
+        description: "Nazwa firmy do wyszukania w Google.",
+      },
+      miasto: {
+        type: "string",
+        description:
+          "Miasto/miejscowość firmy (opcjonalnie) — doprecyzowuje wyszukiwanie.",
+      },
+    },
+    required: ["query"],
+  },
+};
+
 /**
- * Tools for one chat turn. The BizRaport company tools are added whenever the API
- * is configured; web search is opt-in per session (Sonnet 4.6 supports the
- * dynamic-filtering `web_search_20260209` variant).
+ * Tools for one chat turn. The BizRaport company tools and the Google rating tool
+ * are added whenever their APIs are configured; web search is opt-in per session
+ * (Sonnet 4.6 supports the dynamic-filtering `web_search_20260209` variant).
  */
 export function buildTools(webSearchEnabled: boolean): Anthropic.ToolUnion[] {
   const tools: Anthropic.ToolUnion[] = [executeSqlTool, askClarificationTool];
   if (isBizraportConfigured()) {
     tools.push(getCompanyInfoTool, searchCompanyTool);
+  }
+  if (isGooglePlacesConfigured()) {
+    tools.push(getGoogleRatingTool);
   }
   if (webSearchEnabled) {
     tools.push({

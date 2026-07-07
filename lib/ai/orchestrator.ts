@@ -10,6 +10,7 @@ import {
 } from "@/lib/db/queries";
 import type { TokenUsageMetadata } from "@/lib/api/chat-types";
 import { getCompanyData, searchCompanies } from "@/lib/bizraport/client";
+import { searchPlaceRatings } from "@/lib/google-places/client";
 import type { AppUser, ChatMessage, ChatSession } from "@/lib/db/schema";
 import { log, preview } from "@/lib/log";
 import { enforceRowLimit } from "@/lib/sql/enforce-row-limit";
@@ -237,6 +238,39 @@ export async function* runChatTurn(params: {
                 error instanceof Error
                   ? error.message
                   : "Błąd wyszukiwania w BizRaport.",
+              is_error: true,
+            });
+          }
+          continue;
+        }
+
+        if (toolUse.name === "get_google_rating") {
+          const input = toolUse.input as { query?: string; miasto?: string };
+          try {
+            const places = await searchPlaceRatings(String(input.query ?? ""), {
+              city: input.miasto,
+            });
+            log.info("chat.orchestrator", "google rating", {
+              sessionId: session.id,
+              resultCount: places.length,
+            });
+            toolResults.push({
+              type: "tool_result",
+              tool_use_id: toolUse.id,
+              content: JSON.stringify({ places }),
+            });
+          } catch (error) {
+            log.warn("chat.orchestrator", "google rating failed", {
+              sessionId: session.id,
+              error: error instanceof Error ? error.message : String(error),
+            });
+            toolResults.push({
+              type: "tool_result",
+              tool_use_id: toolUse.id,
+              content:
+                error instanceof Error
+                  ? error.message
+                  : "Błąd pobierania oceny Google.",
               is_error: true,
             });
           }
