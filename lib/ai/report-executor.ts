@@ -82,11 +82,16 @@ function postgresErrorMessage(error: unknown): string {
   return "Wystąpił błąd podczas wykonywania zapytania.";
 }
 
+/**
+ * Builds the report system prompt as a single cached (`ephemeral`) block. It is
+ * static for the whole run, so caching lets every loop iteration re-read it at the
+ * cheap cache-read rate instead of re-paying full input price each turn.
+ */
 function buildSystemPrompt(
   report: AiReport,
   inputParams: Record<string, string>,
   bizraportAvailable: boolean,
-): string {
+): Anthropic.TextBlockParam[] {
   const sources = ["`execute_sql` — dane ERP (tylko zapytania SELECT)"];
   if (bizraportAvailable) {
     sources.push(
@@ -98,7 +103,7 @@ function buildSystemPrompt(
     sources.push("`web_search` — wyszukiwanie w internecie");
   }
 
-  return `${report.systemPrompt}
+  const text = `${report.systemPrompt}
 
 # Wykonanie raportu
 Parametry wejściowe (input_params):
@@ -111,6 +116,37 @@ Dostępne narzędzia:
 - ${sources.join("\n- ")}
 
 Zbierz potrzebne dane wyłącznie za pomocą narzędzi, a następnie wywołaj \`submit_report\` z obiektem \`data\` ściśle zgodnym z output_schema (te same nazwy pól). Nie zmyślaj wartości — opieraj się tylko na danych zwróconych przez narzędzia; gdy dane są niedostępne, wpisz null lub „brak danych". Odpowiadaj po polsku.`;
+
+  return [{ type: "text", text, cache_control: { type: "ephemeral" } }];
+}
+
+/**
+ * Returns a shallow copy of `messages` with a rolling `ephemeral` cache breakpoint
+ * on the final content block of the last message. This caches the whole growing
+ * prefix (system + tools + prior tool results), so each agentic turn re-reads it at
+ * the cache-read rate instead of re-paying full input price. The canonical
+ * `messages` array is left untouched (no cache_control persists between turns).
+ */
+function withHistoryCache(
+  messages: Anthropic.MessageParam[],
+): Anthropic.MessageParam[] {
+  if (messages.length === 0) return messages;
+  const lastIndex = messages.length - 1;
+  const last = messages[lastIndex];
+  const blocks: Anthropic.ContentBlockParam[] =
+    typeof last.content === "string"
+      ? [{ type: "text", text: last.content }]
+      : [...last.content];
+  if (blocks.length === 0) return messages;
+
+  blocks[blocks.length - 1] = {
+    ...blocks[blocks.length - 1],
+    cache_control: { type: "ephemeral" },
+  } as Anthropic.ContentBlockParam;
+
+  const next = [...messages];
+  next[lastIndex] = { ...last, content: blocks };
+  return next;
 }
 
 /**
@@ -154,7 +190,7 @@ export async function runReportExecution(params: {
       model: CHAT_MODEL,
       max_tokens: maxTokens,
       system,
-      messages,
+      messages: withHistoryCache(messages),
       tools,
       tool_choice: { type: "auto" },
     });
@@ -299,14 +335,14 @@ export async function runReportExecution(params: {
       model: CHAT_MODEL,
       max_tokens: maxTokens,
       system,
-      messages: [
+      messages: withHistoryCache([
         ...messages,
         {
           role: "user",
           content:
             "Na podstawie zebranych danych wywołaj teraz submit_report z finalnym obiektem `data` zgodnym z output_schema.",
         },
-      ],
+      ]),
       tools: [submitReportTool],
       tool_choice: { type: "tool", name: "submit_report" },
     });
