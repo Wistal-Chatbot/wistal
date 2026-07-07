@@ -106,6 +106,10 @@ export async function POST(
       outputData: outcome.outputData,
       sqlQueries: outcome.sqlQueries,
       tokensUsed: outcome.tokensUsed,
+      inputTokens: outcome.tokenUsage.inputTokens,
+      outputTokens: outcome.tokenUsage.outputTokens,
+      cacheCreationInputTokens: outcome.tokenUsage.cacheCreationInputTokens,
+      cacheReadInputTokens: outcome.tokenUsage.cacheReadInputTokens,
       executionMs,
       status: "completed",
     });

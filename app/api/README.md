@@ -205,8 +205,9 @@ with the same shape as recent runs. `limit` is optional and capped at `100`.
 ### `GET /api/ai-reports/runs/:executionId`
 One saved report execution → `{ execution: AiReportExecutionDetailDto }`, including
 report name, user, params, `output_data`, `html_widget`, status, error, SQL count data,
-token count, execution time, and creation date. Used by the result page opened after a
-run or from "Ostatnie uruchomienia"; it does **not** execute the report again.
+`tokensUsed` (total) plus a `tokenUsage` per-type breakdown (input/output/cache; `null`
+for runs recorded before tracking), execution time, and creation date. Used by the result
+page opened after a run or from "Ostatnie uruchomienia"; it does **not** execute the report again.
 - `401` · `404` unknown execution.
 
 ### `GET /api/ai-reports/:id`

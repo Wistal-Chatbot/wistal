@@ -36,6 +36,19 @@ export async function GET(
     htmlWidget: row.htmlWidget,
     sqlQueries: row.sqlQueries ?? [],
     tokensUsed: row.tokensUsed,
+    tokenUsage:
+      row.inputTokens === null &&
+      row.outputTokens === null &&
+      row.cacheCreationInputTokens === null &&
+      row.cacheReadInputTokens === null
+        ? null
+        : {
+            inputTokens: row.inputTokens ?? 0,
+            outputTokens: row.outputTokens ?? 0,
+            cacheCreationInputTokens: row.cacheCreationInputTokens ?? 0,
+            cacheReadInputTokens: row.cacheReadInputTokens ?? 0,
+            totalTokens: row.tokensUsed ?? 0,
+          },
     executionMs: row.executionMs,
     status: row.status,
     errorMessage: row.errorMessage,

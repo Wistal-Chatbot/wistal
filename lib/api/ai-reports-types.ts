@@ -7,6 +7,8 @@
 
 import { z } from "zod";
 
+import type { TokenUsageMetadata } from "@/lib/api/chat-types";
+
 /** A free-form JSON object — used for the `output_schema` / `input_params` / `model_config` jsonb columns. */
 const jsonObjectSchema = z.record(z.string(), z.unknown());
 
@@ -201,6 +203,8 @@ export interface AiReportExecutionDetailDto {
   htmlWidget: string | null;
   sqlQueries: string[];
   tokensUsed: number | null;
+  /** Per-type token breakdown (input/output/cache); null for runs recorded before tracking. */
+  tokenUsage: TokenUsageMetadata | null;
   executionMs: number | null;
   status: string;
   errorMessage: string | null;

@@ -101,6 +101,10 @@ export interface AiReportExecutionDetailRow {
   htmlWidget: string | null;
   sqlQueries: string[] | null;
   tokensUsed: number | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  cacheCreationInputTokens: number | null;
+  cacheReadInputTokens: number | null;
   executionMs: number | null;
   status: string;
   errorMessage: string | null;
@@ -186,6 +190,10 @@ export async function getAiReportExecutionById(
       htmlWidget: aiReports.htmlWidget,
       sqlQueries: aiReportExecutions.sqlQueries,
       tokensUsed: aiReportExecutions.tokensUsed,
+      inputTokens: aiReportExecutions.inputTokens,
+      outputTokens: aiReportExecutions.outputTokens,
+      cacheCreationInputTokens: aiReportExecutions.cacheCreationInputTokens,
+      cacheReadInputTokens: aiReportExecutions.cacheReadInputTokens,
       executionMs: aiReportExecutions.executionMs,
       status: aiReportExecutions.status,
       errorMessage: aiReportExecutions.errorMessage,
