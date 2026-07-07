@@ -288,8 +288,11 @@ Aggregated stats for the admin „Przegląd" page. Wire shapes in
 **display-ready** `AdminOverviewResponse`
 (`{ stats, weeklyQueries, systemStatus, users }`) — KPI tiles, the 7-day query chart
 (Warsaw days, today highlighted), live DB/AI-provider status, and the busiest active
-users this month. The „Zużycie AI" tile's *used tokens* is a **mock** placeholder
-(the monthly limit is real); it will move to the Anthropic Admin usage API.
+users this month. The „Zużycie AI / mies." tile shows **month-to-date spend in USD**
+fetched live from the Anthropic Cost API (`getMonthlyAiSpend`, `lib/ai/token-usage.ts`),
+with the billing period (calendar month, `DD.MM.YYYY – DD.MM.YYYY`) as its delta line;
+the value falls back to „—" when `ANTHROPIC_ADMIN_KEY` is missing or the Cost API is
+unreachable.
 - `500` load failed.
 
 ---
