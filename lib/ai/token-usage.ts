@@ -5,8 +5,10 @@ import { getAppSetting } from "@/lib/db/queries";
 import { log, preview } from "@/lib/log";
 import {
   buildMonthlyAiUsage,
+  lastDayOfMonth,
   startOfMonth,
   startOfNextMonth,
+  sumAnthropicCostCents,
   sumAnthropicUsageTokens,
   toNumber,
 } from "./token-usage-core";
@@ -21,6 +23,9 @@ export interface TokenLimitCheck {
 
 const ANTHROPIC_USAGE_URL =
   "https://api.anthropic.com/v1/organizations/usage_report/messages";
+
+const ANTHROPIC_COST_URL =
+  "https://api.anthropic.com/v1/organizations/cost_report";
 
 function settingShape(value: unknown): string {
   if (value === null) return "missing";
@@ -108,6 +113,130 @@ export async function fetchLiveMonthlyTokens(
     });
     return null;
   }
+}
+
+interface FetchLiveMonthlySpendOptions {
+  now?: Date;
+  fetchImpl?: typeof fetch;
+  apiKey?: string | null;
+  costUrl?: string;
+}
+
+/**
+ * Best-effort live month-to-date spend in **USD**, from the Anthropic Cost Report
+ * API. Nothing about cost is stored locally; it is read live from the provider.
+ * Returns null on any failure so the caller can degrade gracefully (show „—")
+ * instead of surfacing an error.
+ */
+export async function fetchLiveMonthlySpendUsd(
+  options: FetchLiveMonthlySpendOptions = {},
+): Promise<number | null> {
+  const apiKey = options.apiKey ?? process.env.ANTHROPIC_ADMIN_KEY ?? null;
+  if (!apiKey) {
+    log.warn("ai.usage", "live spend unavailable: missing ANTHROPIC_ADMIN_KEY");
+    return null;
+  }
+
+  const now = options.now ?? new Date();
+  const url = new URL(
+    options.costUrl ?? process.env.ANTHROPIC_COST_API_URL ?? ANTHROPIC_COST_URL,
+  );
+  url.searchParams.set("starting_at", startOfMonth(now).toISOString());
+  url.searchParams.set("ending_at", startOfNextMonth(now).toISOString());
+  url.searchParams.set("bucket_width", "1d");
+
+  const headers: Record<string, string> = {
+    "x-api-key": apiKey,
+    "anthropic-version": process.env.ANTHROPIC_VERSION ?? "2023-06-01",
+  };
+
+  log.info("ai.usage", "fetching Anthropic monthly spend", {
+    endpoint: `${url.origin}${url.pathname}`,
+    startingAt: url.searchParams.get("starting_at"),
+    endingAt: url.searchParams.get("ending_at"),
+  });
+
+  try {
+    const response = await (options.fetchImpl ?? fetch)(url, { headers });
+    if (!response.ok) {
+      const body = await response.text();
+      log.warn("ai.usage", "Anthropic cost API unavailable", {
+        status: response.status,
+        statusText: response.statusText,
+        bodyPreview: preview(body, 240),
+      });
+      return null;
+    }
+
+    const payload = await response.json();
+    const cents = sumAnthropicCostCents(payload);
+    if (cents === null) {
+      log.warn("ai.usage", "Anthropic cost API response had no cost items", {
+        payloadShape: settingShape(payload),
+      });
+      return null;
+    }
+
+    const spendUsd = cents / 100;
+    log.info("ai.usage", "Anthropic monthly spend fetched", { spendUsd });
+    return spendUsd;
+  } catch (error) {
+    log.warn("ai.usage", "Anthropic cost API request failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
+}
+
+export interface MonthlyAiSpend {
+  /** Month-to-date Anthropic spend in USD, or null when live cost is unavailable. */
+  spendUsd: number | null;
+  /** Billing period start — the first day of the current calendar month (UTC). */
+  periodStart: Date;
+  /** Billing period end — the last day of the current calendar month (UTC). */
+  periodEnd: Date;
+  /** False when the Cost API couldn't be reached (then `spendUsd` is null). */
+  available: boolean;
+}
+
+interface MonthlyAiSpendOptions {
+  now?: Date;
+  fetchLiveSpend?: () => Promise<number | null>;
+}
+
+/**
+ * Month-to-date Anthropic spend (USD) plus the billing period it covers, for the
+ * admin „Zużycie AI / mies." tile. Anthropic bills per calendar month, so the
+ * period is the current month. Best-effort: `spendUsd` is null (and `available`
+ * false) when the Cost API can't be reached; the period is always returned.
+ */
+export async function getMonthlyAiSpend(
+  options: MonthlyAiSpendOptions = {},
+): Promise<MonthlyAiSpend> {
+  const now = options.now ?? new Date();
+  const spendUsd = await (options.fetchLiveSpend
+    ? options.fetchLiveSpend()
+    : fetchLiveMonthlySpendUsd({ now }));
+
+  if (spendUsd === null) {
+    log.warn("ai.usage", "live monthly spend is unavailable; tile shows „—”");
+  }
+
+  const spend: MonthlyAiSpend = {
+    spendUsd,
+    periodStart: startOfMonth(now),
+    periodEnd: lastDayOfMonth(now),
+    available: spendUsd !== null,
+  };
+
+  log.info("ai.usage", "monthly spend computed", {
+    spendUsd: spend.spendUsd,
+    available: spend.available,
+    periodStart: spend.periodStart.toISOString(),
+    periodEnd: spend.periodEnd.toISOString(),
+  });
+
+  return spend;
 }
 
 interface MonthlyAiUsageOptions {
