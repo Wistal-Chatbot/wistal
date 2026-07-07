@@ -205,8 +205,9 @@ with the same shape as recent runs. `limit` is optional and capped at `100`.
 ### `GET /api/ai-reports/runs/:executionId`
 One saved report execution → `{ execution: AiReportExecutionDetailDto }`, including
 report name, user, params, `output_data`, `html_widget`, status, error, SQL count data,
-token count, execution time, and creation date. Used by the result page opened after a
-run or from "Ostatnie uruchomienia"; it does **not** execute the report again.
+`tokensUsed` (total) plus a `tokenUsage` per-type breakdown (input/output/cache; `null`
+for runs recorded before tracking), execution time, and creation date. Used by the result
+page opened after a run or from "Ostatnie uruchomienia"; it does **not** execute the report again.
 - `401` · `404` unknown execution.
 
 ### `GET /api/ai-reports/:id`
@@ -216,7 +217,7 @@ One active report (params to build the run form) → `{ report: AiReportPublicDt
 ### `POST /api/ai-reports/:id/execute`
 Run a report. Body `{ input_params: Record<string,string> }`. Flow: rate limit (shared
 chat keys, **5/min · 200/day**) → monthly AI token check → load active report → validate
-required `input_params` → agentic run (`execute_sql` + BizRaport + web search per
+required `input_params` → agentic run (`execute_sql` + BizRaport + Google rating + web search per
 `model_config`; SQL audited `source='ai_report'`) → the model returns JSON via the
 `submit_report` tool → save `ai_report_executions` → `{ executionId, output_data,
 html_widget, execution_ms }`.
@@ -262,7 +263,7 @@ Generate a report config from a plain-language brief and save it as a **draft**
 (`ANTHROPIC_CHAT_MODEL`) returns `name`, `systemPrompt`, `outputSchema`, `htmlWidget`,
 `inputParams`, `modelConfig` via a forced tool call
 ([`lib/ai/report-generator.ts`](../../lib/ai/report-generator.ts)); the generator may
-wire ERP SQL, BizRaport, and web search into `modelConfig`. Returns
+wire ERP SQL, BizRaport, Google rating, and web search into `modelConfig`. Returns
 `201 { report: AdminAiReportDto }`.
 - `400` invalid body · `429` monthly AI token limit (`{ code: "AI_MONTHLY_TOKEN_LIMIT_EXCEEDED" }`)
   · `502` generation failed.
@@ -288,8 +289,11 @@ Aggregated stats for the admin „Przegląd" page. Wire shapes in
 **display-ready** `AdminOverviewResponse`
 (`{ stats, weeklyQueries, systemStatus, users }`) — KPI tiles, the 7-day query chart
 (Warsaw days, today highlighted), live DB/AI-provider status, and the busiest active
-users this month. The „Zużycie AI" tile's *used tokens* is a **mock** placeholder
-(the monthly limit is real); it will move to the Anthropic Admin usage API.
+users this month. The „Zużycie AI / mies." tile shows **month-to-date spend in USD**
+fetched live from the Anthropic Cost API (`getMonthlyAiSpend`, `lib/ai/token-usage.ts`),
+with the billing period (calendar month, `DD.MM.YYYY – DD.MM.YYYY`) as its delta line;
+the value falls back to „—" when `ANTHROPIC_ADMIN_KEY` is missing or the Cost API is
+unreachable.
 - `500` load failed.
 
 ---

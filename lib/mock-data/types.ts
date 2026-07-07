@@ -186,23 +186,6 @@ export interface AdminUser {
   status: "Aktywny" | "Bezczynny";
 }
 
-// ── AI usage ────────────────────────────────────────────────────────────────
-
-export interface UsageTopUser {
-  name: string;
-  tokens: string;
-}
-
-export interface AiUsage {
-  percent: number;
-  period: string;
-  usedTokens: string;
-  totalTokens: string;
-  queriesToday: string;
-  monthlyCost: string;
-  topUsers: UsageTopUser[];
-}
-
 // ── Current user ─────────────────────────────────────────────────────────────
 
 export interface CurrentUser {

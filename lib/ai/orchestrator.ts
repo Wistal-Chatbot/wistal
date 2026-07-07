@@ -10,6 +10,7 @@ import {
 } from "@/lib/db/queries";
 import type { TokenUsageMetadata } from "@/lib/api/chat-types";
 import { getCompanyData, searchCompanies } from "@/lib/bizraport/client";
+import { searchPlaceRatings } from "@/lib/google-places/client";
 import type { AppUser, ChatMessage, ChatSession } from "@/lib/db/schema";
 import { log, preview } from "@/lib/log";
 import { enforceRowLimit } from "@/lib/sql/enforce-row-limit";
@@ -19,6 +20,7 @@ import { validateSql } from "@/lib/sql/validate";
 
 import { CHAT_MODEL, MAX_OUTPUT_TOKENS, getAnthropic } from "./anthropic";
 import { buildSystemPrompt } from "./system-prompt";
+import { addTokenUsage, createTokenUsageTotals } from "./token-usage-core";
 import { buildTools } from "./tools";
 
 export type ChatTurnEvent =
@@ -40,31 +42,6 @@ const MAX_ITERATIONS = 5;
 const MAX_SQL_RETRIES = 2;
 const ROW_LIMIT = 500;
 const STATEMENT_TIMEOUT_MS = 10_000;
-
-function createTokenUsageTotals(): TokenUsageMetadata {
-  return {
-    inputTokens: 0,
-    outputTokens: 0,
-    cacheCreationInputTokens: 0,
-    cacheReadInputTokens: 0,
-    totalTokens: 0,
-  };
-}
-
-function addTokenUsage(
-  totals: TokenUsageMetadata,
-  usage: Anthropic.Usage,
-): void {
-  totals.inputTokens += usage.input_tokens;
-  totals.outputTokens += usage.output_tokens;
-  totals.cacheCreationInputTokens += usage.cache_creation_input_tokens ?? 0;
-  totals.cacheReadInputTokens += usage.cache_read_input_tokens ?? 0;
-  totals.totalTokens =
-    totals.inputTokens +
-    totals.outputTokens +
-    totals.cacheCreationInputTokens +
-    totals.cacheReadInputTokens;
-}
 
 function toAnthropicMessage(message: ChatMessage): Anthropic.MessageParam {
   return {
@@ -261,6 +238,39 @@ export async function* runChatTurn(params: {
                 error instanceof Error
                   ? error.message
                   : "Błąd wyszukiwania w BizRaport.",
+              is_error: true,
+            });
+          }
+          continue;
+        }
+
+        if (toolUse.name === "get_google_rating") {
+          const input = toolUse.input as { query?: string; miasto?: string };
+          try {
+            const places = await searchPlaceRatings(String(input.query ?? ""), {
+              city: input.miasto,
+            });
+            log.info("chat.orchestrator", "google rating", {
+              sessionId: session.id,
+              resultCount: places.length,
+            });
+            toolResults.push({
+              type: "tool_result",
+              tool_use_id: toolUse.id,
+              content: JSON.stringify({ places }),
+            });
+          } catch (error) {
+            log.warn("chat.orchestrator", "google rating failed", {
+              sessionId: session.id,
+              error: error instanceof Error ? error.message : String(error),
+            });
+            toolResults.push({
+              type: "tool_result",
+              tool_use_id: toolUse.id,
+              content:
+                error instanceof Error
+                  ? error.message
+                  : "Błąd pobierania oceny Google.",
               is_error: true,
             });
           }

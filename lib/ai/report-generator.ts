@@ -7,6 +7,7 @@ import {
   type ReportConfigDraft,
 } from "@/lib/api/ai-reports-types";
 import { isBizraportConfigured } from "@/lib/bizraport/client";
+import { isGooglePlacesConfigured } from "@/lib/google-places/client";
 import { log } from "@/lib/log";
 
 import { CHAT_MODEL, getAnthropic } from "./anthropic";
@@ -55,7 +56,7 @@ const saveReportConfigTool: Anthropic.Tool = {
       model_config: {
         type: "object",
         description:
-          "Konfiguracja wykonania: { web_search: boolean, tables: string[], uses_company_lookup: boolean, max_tokens: number }.",
+          "Konfiguracja wykonania: { web_search: boolean, tables: string[], uses_company_lookup: boolean, uses_google_rating: boolean, max_tokens: number }.",
       },
     },
     required: [
@@ -74,6 +75,10 @@ function buildSystemPrompt(): string {
     ? `- **BizRaport** (dane zewnętrzne o polskich firmach): narzędzia \`get_company_info\` (po NIP/KRS) i \`search_company\` (po nazwie) — dane rejestrowe KRS, finansowe, powiązania, KRZ, Monitor Sądowy. W \`model_config\` ustaw \`uses_company_lookup: true\`, gdy raport ma z nich korzystać. Dla klienta z ERP NIP ustala się zapytaniem do \`kontrahenci\`.\n`
     : "";
 
+  const googleRatingCapability = isGooglePlacesConfigured()
+    ? `- **Ocena Google** (dane zewnętrzne): narzędzie \`get_google_rating\` (po nazwie firmy) — średnia ocena Google (1–5) i liczba ocen (bez treści recenzji). W \`model_config\` ustaw \`uses_google_rating: true\`, gdy raport ma z niej korzystać. Dla klienta z ERP nazwę i miasto ustala się zapytaniem do \`kontrahenci\`.\n`
+    : "";
+
   return `Jesteś generatorem konfiguracji Raportów AI dla wewnętrznego systemu ERP firmy Wistal (handel wyrobami hutniczymi/stalowymi).
 Administrator opisze słownie, co raport ma robić. Twoim zadaniem jest wygenerować KOMPLETNĄ konfigurację raportu i zwrócić ją WYŁĄCZNIE przez wywołanie narzędzia \`save_report_config\`.
 
@@ -81,12 +86,12 @@ ${ERP_SCHEMA_DESCRIPTION}
 
 # Dostępne źródła danych, z których raport może korzystać
 - **ERP (SQL)**: zapytania \`SELECT\` (tylko do odczytu) po tabelach ERP wymienionych wyżej. W \`model_config.tables\` wypisz tabele, których raport realnie używa.
-${bizraportCapability}- **Wyszukiwanie w internecie**: ustaw \`model_config.web_search: true\`, jeśli raport potrzebuje danych spoza ERP i BizRaport.
+${bizraportCapability}${googleRatingCapability}- **Wyszukiwanie w internecie**: ustaw \`model_config.web_search: true\`, jeśli raport potrzebuje danych spoza ERP, BizRaport i oceny Google.
 
 # Co masz wygenerować
 - **name** — zwięzła nazwa raportu.
 - **description** — jedno zdanie, co raport robi.
-- **system_prompt** — pełna instrukcja wykonania raportu: jakie dane pobrać (SQL / BizRaport / web), jak je przetworzyć i jak zbudować wynik ściśle zgodny z \`output_schema\`. Nakazuj opieranie się wyłącznie na pobranych danych (bez zmyślania liczb) i odpowiedzi po polsku.
+- **system_prompt** — pełna instrukcja wykonania raportu: jakie dane pobrać (SQL / BizRaport / ocena Google / web), jak je przetworzyć i jak zbudować wynik ściśle zgodny z \`output_schema\`. Nakazuj opieranie się wyłącznie na pobranych danych (bez zmyślania liczb) i odpowiedzi po polsku.
 - **output_schema** — obiekt JSON opisujący pola wyniku (nazwa → typ), np. \`{ "score": "integer", "risk_level": "string", "recommendation": "string" }\`.
 - **html_widget** — ZWIĘZŁY, estetyczny fragment HTML (po polsku) prezentujący wynik jako gotowy **dashboard/panel analityczny**, bez \`<!DOCTYPE>\`/\`<html>\`/\`<head>\`/\`<script>\`. To nie może być sam tekst. Używaj:
   - nagłówka z nazwą/okresem/parametrami,
@@ -97,7 +102,7 @@ ${bizraportCapability}- **Wyszukiwanie w internecie**: ustaw \`model_config.web_
   - neutralnej palety Wistal: granat \`#1E2188\`, tło \`#eaecf0\`, powierzchnie białe, akcenty czerwony/zielony.
   Wstawiaj dane składnią **Mustache** wg nazw pól z \`output_schema\`: \`{{pole}}\` (wartość), \`{{#lista}}…{{/lista}}\` (tablice, w środku \`{{pole_elementu}}\`), \`{{^pole}}…{{/pole}}\` (gdy brak). Placeholdery muszą odpowiadać polom z \`output_schema\`. Dodawaj czytelne stany puste przez \`{{^lista}}\`.
 - **input_params** — parametry od użytkownika (np. kod klienta / NIP). Pusty obiekt, jeśli raport ich nie potrzebuje.
-- **model_config** — \`{ web_search, tables, uses_company_lookup, max_tokens }\` dopasowane do tego, czego raport faktycznie używa.
+- **model_config** — \`{ web_search, tables, uses_company_lookup, uses_google_rating, max_tokens }\` dopasowane do tego, czego raport faktycznie używa.
 
 # Zasady
 - Dobieraj źródła danych do opisu — nie włączaj możliwości, których raport nie potrzebuje.

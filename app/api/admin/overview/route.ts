@@ -4,9 +4,9 @@ import type {
   AdminUserDto,
   WeeklyBarDto,
 } from "@/lib/api/admin-overview-types";
+import { getMonthlyAiSpend, type MonthlyAiSpend } from "@/lib/ai/token-usage";
 import { requireAdmin } from "@/lib/auth/require-admin";
 import {
-  getAiUsageStub,
   getAvgResponseStats,
   getQueriesLast7Days,
   getQueryCountStats,
@@ -23,14 +23,25 @@ import { log } from "@/lib/log";
 // ── Formatting helpers (display-ready values, Polish) ────────────────────────
 
 const intFmt = new Intl.NumberFormat("pl-PL");
-const tokenFmt = new Intl.NumberFormat("pl-PL", {
-  notation: "compact",
-  maximumFractionDigits: 1,
+const usdFmt = new Intl.NumberFormat("pl-PL", {
+  style: "currency",
+  currency: "USD",
 });
 const secFmt = new Intl.NumberFormat("pl-PL", {
   minimumFractionDigits: 1,
   maximumFractionDigits: 1,
 });
+const dayFmt = new Intl.DateTimeFormat("pl-PL", {
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+  timeZone: "UTC",
+});
+
+/** Billing period as „01.07.2026 – 31.07.2026" (from date – end date). */
+function formatBillingPeriod(start: Date, end: Date): string {
+  return `${dayFmt.format(start)} – ${dayFmt.format(end)}`;
+}
 
 /** Two-letter Polish weekday labels, indexed by JS `getUTCDay()` (0 = Sun). */
 const PL_DOW = ["Nd", "Pn", "Wt", "Śr", "Cz", "Pt", "So"];
@@ -103,7 +114,7 @@ function buildStats(
   users: { activeUsers: number; newThisWeek: number },
   queries: QueryCountStats,
   response: AvgResponseStats,
-  aiUsage: { usedTokens: number; percent: number },
+  spend: MonthlyAiSpend,
 ): AdminStatDto[] {
   const queriesDelta = pctDelta(queries.today, queries.yesterday);
   const respDelta = responseDelta(response);
@@ -126,8 +137,8 @@ function buildStats(
     },
     {
       label: "Zużycie AI / mies.",
-      value: `${tokenFmt.format(aiUsage.usedTokens)} tok.`,
-      delta: `${aiUsage.percent}% limitu`,
+      value: spend.spendUsd !== null ? usdFmt.format(spend.spendUsd) : "—",
+      delta: formatBillingPeriod(spend.periodStart, spend.periodEnd),
       deltaTone: "muted",
     },
     {
@@ -165,7 +176,7 @@ export async function GET() {
   if (!guard.ok) return guard.response;
 
   try {
-    const [users, queries, response, weekly, userRows, systemStatus, aiUsage] =
+    const [users, queries, response, weekly, userRows, systemStatus, spend] =
       await Promise.all([
         getUserOverviewStats(),
         getQueryCountStats(),
@@ -173,11 +184,11 @@ export async function GET() {
         getQueriesLast7Days(),
         getUsersOverview(),
         getSystemStatus(),
-        getAiUsageStub(),
+        getMonthlyAiSpend(),
       ]);
 
     const body: AdminOverviewResponse = {
-      stats: buildStats(users, queries, response, aiUsage),
+      stats: buildStats(users, queries, response, spend),
       weeklyQueries: buildWeekly(weekly),
       systemStatus: systemStatus.map((s) => ({
         label: s.label,

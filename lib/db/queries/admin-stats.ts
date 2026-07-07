@@ -4,26 +4,19 @@ import { desc, eq, sql } from "drizzle-orm";
 
 import { db } from "@/lib/db/drizzle";
 import { appUsers, queryAudit } from "@/lib/db/schema";
-import { getAppSetting } from "@/lib/db/queries/app-settings";
 
 /**
  * Aggregation queries powering the admin „Przegląd" (Overview) endpoint
  * (`GET /api/admin/overview`). All day-boundary math is done in Europe/Warsaw so
  * „dziś" means a Polish calendar day regardless of where the function runs. These
  * return raw DB-shaped values (numbers / Dates); the route formats them for display.
+ *
+ * Monthly AI spend for the „Zużycie AI / mies." tile is NOT here — it comes live
+ * from the Anthropic Cost API via `getMonthlyAiSpend` (`lib/ai/token-usage.ts`).
  */
 
 /** Timezone used for all „today" / „this month" boundaries. */
 const TZ = "Europe/Warsaw";
-
-/** Coerces an app_settings JSONB value (number or numeric string) to a number. */
-function toNumber(value: unknown): number | null {
-  if (typeof value === "number") return value;
-  if (typeof value === "string" && value.trim() !== "" && !isNaN(Number(value))) {
-    return Number(value);
-  }
-  return null;
-}
 
 // ── Users KPI ──────────────────────────────────────────────────────────────
 
@@ -214,31 +207,4 @@ export async function getSystemStatus(): Promise<SystemStatusRow[]> {
       valueLabel: modelConfigured ? "Online" : "Nieskonfigurowany",
     },
   ];
-}
-
-// ── AI usage (stub) ──────────────────────────────────────────────────────────
-
-export interface AiUsageStub {
-  usedTokens: number;
-  limitTokens: number | null;
-  percent: number;
-}
-
-/**
- * Monthly AI usage for the „Zużycie AI" tile. The limit is real
- * (`app_settings.monthly_ai_token_limit`); the *used* figure is a MOCK placeholder.
- *
- * TODO: replace `usedTokens` with real team usage from the Anthropic Admin usage
- * API — the same integration point stubbed in `fetchLiveMonthlyTokens`
- * (`lib/ai/token-usage.ts`). Swapping this one function makes the tile real.
- */
-export async function getAiUsageStub(): Promise<AiUsageStub> {
-  const limitTokens = toNumber(await getAppSetting("monthly_ai_token_limit"));
-  const usedTokens = 1_700_000; // MOCK until the Admin usage API is wired.
-  const percent =
-    limitTokens && limitTokens > 0
-      ? Math.min(Math.round((usedTokens / limitTokens) * 100), 100)
-      : 68;
-
-  return { usedTokens, limitTokens, percent };
 }
