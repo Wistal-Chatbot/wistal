@@ -217,7 +217,7 @@ One active report (params to build the run form) → `{ report: AiReportPublicDt
 ### `POST /api/ai-reports/:id/execute`
 Run a report. Body `{ input_params: Record<string,string> }`. Flow: rate limit (shared
 chat keys, **5/min · 200/day**) → monthly AI token check → load active report → validate
-required `input_params` → agentic run (`execute_sql` + BizRaport + web search per
+required `input_params` → agentic run (`execute_sql` + BizRaport + Google rating + web search per
 `model_config`; SQL audited `source='ai_report'`) → the model returns JSON via the
 `submit_report` tool → save `ai_report_executions` → `{ executionId, output_data,
 html_widget, execution_ms }`.
@@ -263,7 +263,7 @@ Generate a report config from a plain-language brief and save it as a **draft**
 (`ANTHROPIC_CHAT_MODEL`) returns `name`, `systemPrompt`, `outputSchema`, `htmlWidget`,
 `inputParams`, `modelConfig` via a forced tool call
 ([`lib/ai/report-generator.ts`](../../lib/ai/report-generator.ts)); the generator may
-wire ERP SQL, BizRaport, and web search into `modelConfig`. Returns
+wire ERP SQL, BizRaport, Google rating, and web search into `modelConfig`. Returns
 `201 { report: AdminAiReportDto }`.
 - `400` invalid body · `429` monthly AI token limit (`{ code: "AI_MONTHLY_TOKEN_LIMIT_EXCEEDED" }`)
   · `502` generation failed.
