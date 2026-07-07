@@ -15,6 +15,13 @@
       "when": 1782731556951,
       "tag": "0001_ambiguous_tyrannus",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1783415027510,
+      "tag": "0002_yellow_sleeper",
+      "breakpoints": true
     }
   ]
 }
