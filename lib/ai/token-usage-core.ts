@@ -1,3 +1,6 @@
+import type Anthropic from "@anthropic-ai/sdk";
+
+import type { TokenUsageMetadata } from "@/lib/api/chat-types";
 import type { MonthlyAiUsageDto } from "@/lib/api/usage-types";
 
 const DEFAULT_WARNING_PERCENT = 80;
@@ -9,6 +12,33 @@ const TOKEN_FIELDS = new Set([
   "uncached_input_tokens",
   "cached_input_tokens",
 ]);
+
+/** A fresh zeroed token-usage accumulator (shared by chat + report runs). */
+export function createTokenUsageTotals(): TokenUsageMetadata {
+  return {
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheCreationInputTokens: 0,
+    cacheReadInputTokens: 0,
+    totalTokens: 0,
+  };
+}
+
+/** Adds one Anthropic API turn's `usage` into `totals` (mutates in place). */
+export function addTokenUsage(
+  totals: TokenUsageMetadata,
+  usage: Anthropic.Usage,
+): void {
+  totals.inputTokens += usage.input_tokens;
+  totals.outputTokens += usage.output_tokens;
+  totals.cacheCreationInputTokens += usage.cache_creation_input_tokens ?? 0;
+  totals.cacheReadInputTokens += usage.cache_read_input_tokens ?? 0;
+  totals.totalTokens =
+    totals.inputTokens +
+    totals.outputTokens +
+    totals.cacheCreationInputTokens +
+    totals.cacheReadInputTokens;
+}
 
 /** Coerces an app_settings JSONB value (number/string or { value }) to a number. */
 export function toNumber(value: unknown): number | null {

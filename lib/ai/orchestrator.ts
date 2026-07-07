@@ -19,6 +19,7 @@ import { validateSql } from "@/lib/sql/validate";
 
 import { CHAT_MODEL, MAX_OUTPUT_TOKENS, getAnthropic } from "./anthropic";
 import { buildSystemPrompt } from "./system-prompt";
+import { addTokenUsage, createTokenUsageTotals } from "./token-usage-core";
 import { buildTools } from "./tools";
 
 export type ChatTurnEvent =
@@ -40,31 +41,6 @@ const MAX_ITERATIONS = 5;
 const MAX_SQL_RETRIES = 2;
 const ROW_LIMIT = 500;
 const STATEMENT_TIMEOUT_MS = 10_000;
-
-function createTokenUsageTotals(): TokenUsageMetadata {
-  return {
-    inputTokens: 0,
-    outputTokens: 0,
-    cacheCreationInputTokens: 0,
-    cacheReadInputTokens: 0,
-    totalTokens: 0,
-  };
-}
-
-function addTokenUsage(
-  totals: TokenUsageMetadata,
-  usage: Anthropic.Usage,
-): void {
-  totals.inputTokens += usage.input_tokens;
-  totals.outputTokens += usage.output_tokens;
-  totals.cacheCreationInputTokens += usage.cache_creation_input_tokens ?? 0;
-  totals.cacheReadInputTokens += usage.cache_read_input_tokens ?? 0;
-  totals.totalTokens =
-    totals.inputTokens +
-    totals.outputTokens +
-    totals.cacheCreationInputTokens +
-    totals.cacheReadInputTokens;
-}
 
 function toAnthropicMessage(message: ChatMessage): Anthropic.MessageParam {
   return {
