@@ -9,6 +9,7 @@ import {
   touchChatSession,
 } from "@/lib/db/queries";
 import type { TokenUsageMetadata } from "@/lib/api/chat-types";
+import { getCompanyData, searchCompanies } from "@/lib/bizraport/client";
 import type { AppUser, ChatMessage, ChatSession } from "@/lib/db/schema";
 import { log, preview } from "@/lib/log";
 import { enforceRowLimit } from "@/lib/sql/enforce-row-limit";
@@ -89,9 +90,11 @@ function postgresErrorMessage(error: unknown): string {
 export async function* runChatTurn(params: {
   session: ChatSession;
   user: AppUser;
+  /** Audit trail source; `quick_action` when driven by a Szybka akcja. */
+  source?: "chatbot" | "quick_action";
 }): AsyncGenerator<ChatTurnEvent> {
   const turnStartedAt = Date.now();
-  const { session, user } = params;
+  const { session, user, source = "chatbot" } = params;
   const anthropic = getAnthropic();
   const allowlist = await getPublicTableAllowlist();
 
@@ -196,6 +199,74 @@ export async function* runChatTurn(params: {
 
       const toolResults: Anthropic.ToolResultBlockParam[] = [];
       for (const toolUse of toolUses) {
+        if (toolUse.name === "get_company_info") {
+          const input = toolUse.input as { nip?: string; krs?: string };
+          const startedAt = Date.now();
+          try {
+            const data = await getCompanyData({ nip: input.nip, krs: input.krs });
+            log.info("chat.orchestrator", "bizraport company info", {
+              sessionId: session.id,
+              lookup: input.krs ? "krs" : "nip",
+              ms: Date.now() - startedAt,
+            });
+            toolResults.push({
+              type: "tool_result",
+              tool_use_id: toolUse.id,
+              content: JSON.stringify(data),
+            });
+          } catch (error) {
+            log.warn("chat.orchestrator", "bizraport company info failed", {
+              sessionId: session.id,
+              error: error instanceof Error ? error.message : String(error),
+            });
+            toolResults.push({
+              type: "tool_result",
+              tool_use_id: toolUse.id,
+              content:
+                error instanceof Error
+                  ? error.message
+                  : "Błąd pobierania danych z BizRaport.",
+              is_error: true,
+            });
+          }
+          continue;
+        }
+
+        if (toolUse.name === "search_company") {
+          const input = toolUse.input as { query?: string; limit?: number };
+          try {
+            const result = await searchCompanies(
+              String(input.query ?? ""),
+              input.limit,
+            );
+            log.info("chat.orchestrator", "bizraport search", {
+              sessionId: session.id,
+              resultCount: result.krs.length,
+              truncated: result.truncated,
+            });
+            toolResults.push({
+              type: "tool_result",
+              tool_use_id: toolUse.id,
+              content: JSON.stringify(result),
+            });
+          } catch (error) {
+            log.warn("chat.orchestrator", "bizraport search failed", {
+              sessionId: session.id,
+              error: error instanceof Error ? error.message : String(error),
+            });
+            toolResults.push({
+              type: "tool_result",
+              tool_use_id: toolUse.id,
+              content:
+                error instanceof Error
+                  ? error.message
+                  : "Błąd wyszukiwania w BizRaport.",
+              is_error: true,
+            });
+          }
+          continue;
+        }
+
         if (toolUse.name !== "execute_sql") {
           toolResults.push({
             type: "tool_result",
@@ -219,7 +290,7 @@ export async function* runChatTurn(params: {
           await insertQueryAudit({
             chatSessionId: session.id,
             userId: user.id,
-            source: "chatbot",
+            source,
             userInput,
             sqlGenerated: sql,
             sqlValid: false,
@@ -252,7 +323,7 @@ export async function* runChatTurn(params: {
           lastAuditId = await insertQueryAudit({
             chatSessionId: session.id,
             userId: user.id,
-            source: "chatbot",
+            source,
             userInput,
             sqlGenerated: sql,
             sqlExecuted: executable,
@@ -276,7 +347,7 @@ export async function* runChatTurn(params: {
           await insertQueryAudit({
             chatSessionId: session.id,
             userId: user.id,
-            source: "chatbot",
+            source,
             userInput,
             sqlGenerated: sql,
             sqlExecuted: executable,

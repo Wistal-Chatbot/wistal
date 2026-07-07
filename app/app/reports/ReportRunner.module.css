@@ -1,0 +1,107 @@
+.page {
+  max-width: 980px;
+  padding: 24px 28px;
+}
+
+.backLink {
+  align-items: center;
+  color: var(--primary);
+  display: inline-flex;
+  font-size: 13px;
+  font-weight: 600;
+  gap: 7px;
+  margin-bottom: 16px;
+}
+
+.stateMsg {
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 22px;
+  text-align: center;
+}
+
+.formCard {
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  margin-bottom: 20px;
+  max-width: 520px;
+  padding: 24px;
+}
+
+.formTitle {
+  font-size: 16px;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.formHint {
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.5;
+  margin-bottom: 16px;
+}
+
+.field {
+  margin-bottom: 14px;
+}
+
+.label {
+  color: #3a434f;
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 7px;
+}
+
+.input {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 13px;
+  outline: none;
+  padding: 10px 12px;
+  width: 100%;
+}
+
+.fieldHint {
+  color: var(--text-muted);
+  font-size: 11px;
+  margin-top: 5px;
+}
+
+.error {
+  color: var(--accent-red);
+  font-size: 12px;
+  margin: 12px 0 0;
+}
+
+.runButton {
+  background: var(--primary);
+  border: 0;
+  border-radius: 8px;
+  color: #fff;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  margin-top: 16px;
+  padding: 12px 20px;
+}
+
+.runButton:hover {
+  background: var(--primary-hover);
+}
+
+.runButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+@media (max-width: 820px) {
+  .page {
+    padding: 18px 16px;
+  }
+}

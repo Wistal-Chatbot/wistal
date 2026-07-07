@@ -5,7 +5,7 @@ import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { type ReactNode, useEffect, useState } from "react";
 import type { MonthlyAiUsageDto, MonthlyAiUsageResponse } from "@/lib/api/usage-types";
-import { currentUser } from "@/lib/mock-data";
+import type { CurrentUser } from "@/lib/mock-data/types";
 import {
   AdminIcon,
   ChatIcon,
@@ -79,7 +79,13 @@ function usageTone(state: UsageState): "normal" | "warning" | "exceeded" | "unav
   return "normal";
 }
 
-export function AppShell({ children }: { children: ReactNode }) {
+export function AppShell({
+  children,
+  currentUser,
+}: {
+  children: ReactNode;
+  currentUser: CurrentUser;
+}) {
   const pathname = usePathname();
   const router = useRouter();
   const current = titleForPath(pathname);

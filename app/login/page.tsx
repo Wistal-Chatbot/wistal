@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-import { allowNonWistalEmails } from "@/lib/auth/domain";
+import { hasAllowedExternalEmails } from "@/lib/auth/domain";
 import { getSessionPayload } from "@/lib/auth/session";
 
 import { LoginPage } from "./LoginPage";
@@ -12,5 +12,5 @@ export default async function Page() {
     redirect("/app/chat");
   }
 
-  return <LoginPage allowNonWistalEmails={allowNonWistalEmails()} />;
+  return <LoginPage allowsExternalEmails={hasAllowedExternalEmails()} />;
 }

@@ -1,4 +1,4 @@
-import { ReportResult } from "../../ReportResult";
+import { ReportRunner } from "../../ReportRunner";
 
 export default async function Page({
   params,
@@ -6,5 +6,5 @@ export default async function Page({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  return <ReportResult reportId={id} />;
+  return <ReportRunner reportId={id} />;
 }

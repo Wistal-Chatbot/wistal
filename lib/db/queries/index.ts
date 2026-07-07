@@ -3,3 +3,6 @@ export * from "./chat-sessions";
 export * from "./chat-messages";
 export * from "./query-audit";
 export * from "./app-settings";
+export * from "./quick-actions";
+export * from "./ai-reports";
+export * from "./admin-stats";

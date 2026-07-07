@@ -187,6 +187,15 @@ export function CopyIcon(props: IconProps) {
   );
 }
 
+export function EditIcon(props: IconProps) {
+  return (
+    <Svg strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M3 15v-2.5L11.5 4l2.5 2.5L5.5 15H3z" />
+      <path d="M10 5.5 12.5 8" />
+    </Svg>
+  );
+}
+
 export function CommentIcon(props: IconProps) {
   return (
     <Svg strokeWidth={1.6} {...props}>
@@ -200,6 +209,16 @@ export function RefreshIcon(props: IconProps) {
     <Svg strokeWidth={1.6} {...props}>
       <path d="M15 9 a6 6 0 1 1 -1.8 -4.3" />
       <path d="M15 2 v3 h-3" />
+    </Svg>
+  );
+}
+
+export function HelpIcon(props: IconProps) {
+  return (
+    <Svg strokeWidth={1.5} {...props}>
+      <circle cx="9" cy="9" r="7" />
+      <path d="M6.8 6.8 A2.2 2 0 0 1 11.2 7 C11.2 8.6 9 8.6 9 10.4" />
+      <line x1="9" y1="12.6" x2="9" y2="13" />
     </Svg>
   );
 }

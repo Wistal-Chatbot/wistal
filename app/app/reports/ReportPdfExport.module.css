@@ -1,0 +1,122 @@
+.exportRoot {
+  background: #ffffff;
+  color: #1d2733;
+  left: -12000px;
+  padding: 28px;
+  pointer-events: none;
+  position: fixed;
+  top: 0;
+  width: 1040px;
+  z-index: 0;
+}
+
+.details {
+  background: #ffffff;
+  border: 1px solid #d3d8e0;
+  border-radius: 8px;
+  margin-bottom: 18px;
+  padding: 22px;
+}
+
+.eyebrow {
+  color: #8b94a3;
+  font-family: var(--font-ibm-plex-mono), monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0;
+  margin-bottom: 8px;
+  text-transform: uppercase;
+}
+
+.titleRow {
+  align-items: flex-start;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.titleRow h1 {
+  color: #1d2733;
+  font-size: 26px;
+  line-height: 1.2;
+  margin: 0 0 6px;
+}
+
+.executionId {
+  color: #58616e;
+  font-family: var(--font-ibm-plex-mono), monospace;
+  font-size: 11px;
+}
+
+.status {
+  background: #e6f2ec;
+  border-radius: 999px;
+  color: #1f6b4a;
+  flex: none;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 5px 12px;
+}
+
+.sectionTitle {
+  color: #1d2733;
+  font-size: 13px;
+  font-weight: 700;
+  margin: 18px 0 10px;
+}
+
+.metaGrid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  margin: 0;
+}
+
+.metaGrid div {
+  background: #f7f9fb;
+  border: 1px solid #e5e9ef;
+  border-radius: 8px;
+  padding: 11px;
+}
+
+.metaGrid dt {
+  color: #8b94a3;
+  font-size: 11px;
+  margin-bottom: 4px;
+}
+
+.metaGrid dd {
+  color: #1d2733;
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.params {
+  background: #f6f8fb;
+  border: 1px solid #e5e9ef;
+  border-radius: 8px;
+  color: #58616e;
+  font-family: var(--font-ibm-plex-mono), monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  margin: 0;
+  padding: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.widgetSection {
+  background: #ffffff;
+}
+
+.errorBox {
+  border: 1px solid #d3d8e0;
+  border-radius: 8px;
+  color: #b4402e;
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 18px;
+}
