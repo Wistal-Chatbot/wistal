@@ -82,6 +82,7 @@ function sourcesSummary(modelConfig: unknown): string {
     if (tables.length > 0) parts.push(tables.join(", "));
   }
   if (mc.uses_company_lookup === true) parts.push("BizRaport");
+  if (mc.uses_google_rating === true) parts.push("Google");
   if (mc.web_search === true) parts.push("web");
   return parts.length > 0 ? parts.join(" · ") : "—";
 }
@@ -220,8 +221,8 @@ export function ReportsManager() {
       <p className={styles.sectionIntro}>
         Raporty AI to ustrukturyzowane analizy uruchamiane na osobnej zakładce.
         Opisz raport w języku naturalnym — model wygeneruje prompt, schemat
-        wyjścia, widget HTML i konfigurację modelu (dane ERP, BizRaport,
-        wyszukiwanie w internecie). Raport zapisuje się jako wersja robocza; przejrzyj
+        wyjścia, widget HTML i konfigurację modelu (dane ERP, BizRaport, ocena
+        Google, wyszukiwanie w internecie). Raport zapisuje się jako wersja robocza; przejrzyj
         go i aktywuj, aby stał się dostępny dla użytkowników.
       </p>
 
@@ -411,7 +412,7 @@ export function ReportsManager() {
           <div className={styles.labelRow}>Opis raportu</div>
           <textarea
             className={styles.textarea}
-            placeholder="np. Oceń wiarygodność płatniczą kontrahenta na podstawie danych z BizRaport i historii faktur…"
+            placeholder="np. Oceń wiarygodność płatniczą kontrahenta na podstawie danych z BizRaport, oceny Google i historii faktur…"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
           />

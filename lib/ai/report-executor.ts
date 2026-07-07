@@ -4,6 +4,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 
 import type { TokenUsageMetadata } from "@/lib/api/chat-types";
 import { getCompanyData, isBizraportConfigured, searchCompanies } from "@/lib/bizraport/client";
+import { isGooglePlacesConfigured, searchPlaceRatings } from "@/lib/google-places/client";
 import { insertQueryAudit } from "@/lib/db/queries";
 import type { AiReport } from "@/lib/db/schema";
 import { log } from "@/lib/log";
@@ -14,7 +15,12 @@ import { validateSql } from "@/lib/sql/validate";
 
 import { CHAT_MODEL, getAnthropic } from "./anthropic";
 import { addTokenUsage, createTokenUsageTotals } from "./token-usage-core";
-import { executeSqlTool, getCompanyInfoTool, searchCompanyTool } from "./tools";
+import {
+  executeSqlTool,
+  getCompanyInfoTool,
+  getGoogleRatingTool,
+  searchCompanyTool,
+} from "./tools";
 
 const MAX_ITERATIONS = 8;
 const ROW_LIMIT = 500;
@@ -91,11 +97,17 @@ function buildSystemPrompt(
   report: AiReport,
   inputParams: Record<string, string>,
   bizraportAvailable: boolean,
+  googlePlacesAvailable: boolean,
 ): Anthropic.TextBlockParam[] {
   const sources = ["`execute_sql` — dane ERP (tylko zapytania SELECT)"];
   if (bizraportAvailable) {
     sources.push(
       "`get_company_info` / `search_company` — zewnętrzne dane o firmach z BizRaport (po NIP/KRS)",
+    );
+  }
+  if (googlePlacesAvailable) {
+    sources.push(
+      "`get_google_rating` — ocena firmy w Google (średnia ocena + liczba ocen) po nazwie",
     );
   }
   const mc = asObject(report.modelConfig);
@@ -151,7 +163,7 @@ function withHistoryCache(
 
 /**
  * Runs one AI report: drives the agentic tool loop (execute_sql / BizRaport /
- * web_search) and captures the structured `output_data` via the `submit_report`
+ * Google rating / web_search) and captures the structured `output_data` via the `submit_report`
  * tool. SQL is validated + executed read-only and audited (`source='ai_report'`).
  * Throws when no valid report data could be produced.
  */
@@ -166,16 +178,24 @@ export async function runReportExecution(params: {
   const modelConfig = asObject(report.modelConfig);
   const bizraportAvailable =
     isBizraportConfigured() && modelConfig.uses_company_lookup === true;
+  const googlePlacesAvailable =
+    isGooglePlacesConfigured() && modelConfig.uses_google_rating === true;
   const maxTokens = resolveMaxTokens(modelConfig);
   const auditLabel = `Raport AI: ${report.name}`;
 
   const tools: Anthropic.ToolUnion[] = [executeSqlTool, submitReportTool];
   if (bizraportAvailable) tools.push(getCompanyInfoTool, searchCompanyTool);
+  if (googlePlacesAvailable) tools.push(getGoogleRatingTool);
   if (modelConfig.web_search === true) {
     tools.push({ type: "web_search_20260209", name: "web_search", max_uses: 3 });
   }
 
-  const system = buildSystemPrompt(report, inputParams, bizraportAvailable);
+  const system = buildSystemPrompt(
+    report,
+    inputParams,
+    bizraportAvailable,
+    googlePlacesAvailable,
+  );
   const messages: Anthropic.MessageParam[] = [
     { role: "user", content: "Wykonaj raport zgodnie z instrukcją i parametrami." },
   ];
@@ -244,6 +264,29 @@ export async function runReportExecution(params: {
             type: "tool_result",
             tool_use_id: toolUse.id,
             content: error instanceof Error ? error.message : "Błąd wyszukiwania.",
+            is_error: true,
+          });
+        }
+        continue;
+      }
+
+      if (toolUse.name === "get_google_rating") {
+        const input = toolUse.input as { query?: string; miasto?: string };
+        try {
+          const places = await searchPlaceRatings(String(input.query ?? ""), {
+            city: input.miasto,
+          });
+          toolResults.push({
+            type: "tool_result",
+            tool_use_id: toolUse.id,
+            content: JSON.stringify({ places }),
+          });
+        } catch (error) {
+          toolResults.push({
+            type: "tool_result",
+            tool_use_id: toolUse.id,
+            content:
+              error instanceof Error ? error.message : "Błąd oceny Google.",
             is_error: true,
           });
         }
