@@ -2,6 +2,7 @@ import "server-only";
 
 import type Anthropic from "@anthropic-ai/sdk";
 
+import type { TokenUsageMetadata } from "@/lib/api/chat-types";
 import { getCompanyData, isBizraportConfigured, searchCompanies } from "@/lib/bizraport/client";
 import { insertQueryAudit } from "@/lib/db/queries";
 import type { AiReport } from "@/lib/db/schema";
@@ -12,6 +13,7 @@ import { executeReadOnly } from "@/lib/sql/execute";
 import { validateSql } from "@/lib/sql/validate";
 
 import { CHAT_MODEL, getAnthropic } from "./anthropic";
+import { addTokenUsage, createTokenUsageTotals } from "./token-usage-core";
 import { executeSqlTool, getCompanyInfoTool, searchCompanyTool } from "./tools";
 
 const MAX_ITERATIONS = 8;
@@ -23,7 +25,10 @@ export interface ReportExecutionOutcome {
   outputData: Record<string, unknown>;
   sqlQueries: string[];
   tablesUsed: string[];
+  /** Total tokens across all turns (== `tokenUsage.totalTokens`). */
   tokensUsed: number;
+  /** Per-type breakdown (input/output/cache) across all turns. */
+  tokenUsage: TokenUsageMetadata;
 }
 
 /** The model returns the final report JSON through this tool. */
@@ -55,15 +60,6 @@ function resolveMaxTokens(modelConfig: Record<string, unknown>): number {
     return Math.min(Math.max(Math.floor(raw), 1000), 8000);
   }
   return DEFAULT_MAX_TOKENS;
-}
-
-function usageTotal(usage: Anthropic.Usage): number {
-  return (
-    usage.input_tokens +
-    usage.output_tokens +
-    (usage.cache_creation_input_tokens ?? 0) +
-    (usage.cache_read_input_tokens ?? 0)
-  );
 }
 
 function extractOutputData(message: Anthropic.Message): Record<string, unknown> | null {
@@ -150,7 +146,7 @@ export async function runReportExecution(params: {
 
   const sqlQueries: string[] = [];
   const tablesUsed = new Set<string>();
-  let tokensUsed = 0;
+  const tokenUsage = createTokenUsageTotals();
   let outputData: Record<string, unknown> | null = null;
 
   for (let i = 0; i < MAX_ITERATIONS && !outputData; i++) {
@@ -162,7 +158,7 @@ export async function runReportExecution(params: {
       tools,
       tool_choice: { type: "auto" },
     });
-    tokensUsed += usageTotal(message.usage);
+    addTokenUsage(tokenUsage, message.usage);
     messages.push({ role: "assistant", content: message.content });
 
     if (message.stop_reason === "pause_turn") continue; // web search in progress
@@ -314,7 +310,7 @@ export async function runReportExecution(params: {
       tools: [submitReportTool],
       tool_choice: { type: "tool", name: "submit_report" },
     });
-    tokensUsed += usageTotal(forced.usage);
+    addTokenUsage(tokenUsage, forced.usage);
     outputData = extractOutputData(forced);
   }
 
@@ -329,13 +325,14 @@ export async function runReportExecution(params: {
     reportId: report.id,
     tables: [...tablesUsed],
     sqlCount: sqlQueries.length,
-    tokensUsed,
+    tokensUsed: tokenUsage.totalTokens,
   });
 
   return {
     outputData,
     sqlQueries,
     tablesUsed: [...tablesUsed],
-    tokensUsed,
+    tokensUsed: tokenUsage.totalTokens,
+    tokenUsage,
   };
 }
