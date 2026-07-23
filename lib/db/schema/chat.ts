@@ -1,8 +1,10 @@
 import { sql } from "drizzle-orm";
 import {
   bigserial,
+  bigint,
   boolean,
   check,
+  foreignKey,
   integer,
   jsonb,
   text,
@@ -55,6 +57,11 @@ export const chatMessages = chatbot.table(
     content: text("content").notNull(),
     sqlGenerated: text("sql_generated"),
     rowCount: integer("row_count"),
+    errorCode: text("error_code"),
+    errorDetail: text("error_detail"),
+    retryable: boolean("retryable").notNull().default(false),
+    isRetried: boolean("is_retried").notNull().default(false),
+    retryOfMessageId: bigint("retry_of_message_id", { mode: "number" }),
     metadata: jsonb("metadata").notNull().default(sql`'{}'::jsonb`),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -65,6 +72,11 @@ export const chatMessages = chatbot.table(
       "chat_messages_message_type_check",
       sql`${table.messageType} IN ('user', 'assistant', 'tool', 'system')`,
     ),
+    foreignKey({
+      columns: [table.retryOfMessageId],
+      foreignColumns: [table.id],
+      name: "chat_messages_retry_of_message_id_chat_messages_id_fk",
+    }).onDelete("set null"),
   ],
 );
 

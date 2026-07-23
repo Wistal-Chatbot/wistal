@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, isNull, lte } from "drizzle-orm";
 
 import { db } from "@/lib/db/drizzle";
 import {
@@ -18,6 +18,43 @@ export async function createChatMessage(
   return message;
 }
 
+export async function getChatMessageForSession(
+  messageId: number,
+  sessionId: string,
+): Promise<ChatMessage | null> {
+  const [message] = await db
+    .select()
+    .from(chatMessages)
+    .where(
+      and(
+        eq(chatMessages.id, messageId),
+        eq(chatMessages.chatSessionId, sessionId),
+      ),
+    )
+    .limit(1);
+  return message ?? null;
+}
+
+/** Atomically reserves one retry attempt. */
+export async function claimChatMessageRetry(
+  messageId: number,
+  sessionId: string,
+): Promise<ChatMessage | null> {
+  const [message] = await db
+    .update(chatMessages)
+    .set({ isRetried: true })
+    .where(
+      and(
+        eq(chatMessages.id, messageId),
+        eq(chatMessages.chatSessionId, sessionId),
+        eq(chatMessages.retryable, true),
+        eq(chatMessages.isRetried, false),
+      ),
+    )
+    .returning();
+  return message ?? null;
+}
+
 /**
  * The last `limit` messages of a session in chronological (ascending) order —
  * ready to map onto the Anthropic `messages` array (~6 turns of history).
@@ -25,11 +62,19 @@ export async function createChatMessage(
 export async function getRecentMessages(
   sessionId: string,
   limit = 12,
+  throughMessageId?: number,
 ): Promise<ChatMessage[]> {
   const rows = await db
     .select()
     .from(chatMessages)
-    .where(eq(chatMessages.chatSessionId, sessionId))
+    .where(
+      and(
+        eq(chatMessages.chatSessionId, sessionId),
+        ...(throughMessageId === undefined
+          ? []
+          : [lte(chatMessages.id, throughMessageId)]),
+      ),
+    )
     .orderBy(desc(chatMessages.id))
     .limit(limit);
 
