@@ -24,6 +24,7 @@ const chatbotTables = [
   "schema_objects",
   "schema_embeddings",
   "app_settings",
+  "system_prompts",
 ] as const;
 
 const publicErpTables = [
