@@ -72,6 +72,7 @@ export function ChatView({
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
   const clientSeq = useRef(0);
+  const chatInputRef = useRef<HTMLTextAreaElement | null>(null);
   const copyResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const titleInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -90,6 +91,14 @@ export function ChatView({
   useEffect(() => {
     if (editingTitle) titleInputRef.current?.select();
   }, [editingTitle]);
+
+  useEffect(() => {
+    const input = chatInputRef.current;
+    if (!input) return;
+
+    input.style.height = "0";
+    input.style.height = `${Math.min(input.scrollHeight, 160)}px`;
+  }, [chatInput]);
 
   // Load the admin-configured quick actions for the composer bar.
   useEffect(() => {
@@ -651,14 +660,19 @@ export function ChatView({
             </div>
 
             <div className={styles.inputRow}>
-              <input
+              <textarea
+                ref={chatInputRef}
                 className={styles.chatInput}
                 placeholder={'Zapytaj np. "Jaki jest stan magazynowy BBC003?"'}
                 value={chatInput}
                 disabled={sending}
+                rows={1}
                 onChange={(e) => setChatInput(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") void send();
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    void send();
+                  }
                 }}
               />
               <button
