@@ -45,7 +45,8 @@ the endpoints that actually exist in the code. For the intended/full backend des
 ```
 
 `status` is ephemeral UI feedback and is never persisted as message content.
-Tool-loop narration is withheld; only the final model turn is emitted as `delta`.
+Tool-loop narration is withheld. After exploration finishes, a separate
+tools-disabled synthesis call emits the final answer incrementally as `delta`.
 Persisted `MessageDto` objects expose `errorCode`, `retryable`, `isRetried`, and
 `retryOfMessageId`. Internal `error_detail` is never serialized.
 

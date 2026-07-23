@@ -3,7 +3,7 @@ export const MAX_SQL_FAILURES = 2;
 
 export const FINALIZATION_INSTRUCTION = `Przygotuj teraz końcową odpowiedź dla użytkownika.
 Nie wolno Ci używać żadnych narzędzi ani prosić o kolejne zapytanie.
-Oprzyj odpowiedź wyłącznie na wynikach zebranych w tej turze.
+Oprzyj odpowiedź na kontekście rozmowy oraz wynikach zebranych w tej turze.
 Jeśli część danych jest niedostępna albo zapytanie zakończyło się błędem, zaznacz to krótko,
 ale wykorzystaj wszystkie poprawne wyniki, które już masz. Odpowiedz po polsku.`;
 

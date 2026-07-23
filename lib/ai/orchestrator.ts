@@ -150,6 +150,7 @@ export async function* runChatTurn(params: {
   let explorationRounds = 0;
   let toolCallCount = 0;
   let forcedFinalization = false;
+  let finalAnswerStreamed = false;
   let terminationReason = "unknown";
   const tokenUsage = createTokenUsageTotals();
 
@@ -181,7 +182,6 @@ export async function* runChatTurn(params: {
 
       const message = await stream.finalMessage();
       addTokenUsage(tokenUsage, message.usage);
-      messages.push({ role: "assistant", content: message.content });
 
       log.info("chat.orchestrator", "model turn", {
         sessionId: session.id,
@@ -192,6 +192,7 @@ export async function* runChatTurn(params: {
 
       // Server-tool loop (web search) paused — re-send to resume.
       if (message.stop_reason === "pause_turn") {
+        messages.push({ role: "assistant", content: message.content });
         log.info("chat.orchestrator", "web search running (pause_turn)", {
           sessionId: session.id,
           iteration: i,
@@ -205,11 +206,13 @@ export async function* runChatTurn(params: {
         turnText,
       );
       if (completedAnswer !== null) {
-        finalText = completedAnswer;
-        terminationReason = finalText ? "model_answer" : "empty_model_answer";
+        terminationReason = completedAnswer
+          ? "model_ready_for_synthesis"
+          : "empty_model_answer";
         break;
       }
 
+      messages.push({ role: "assistant", content: message.content });
       const toolUses = message.content.filter(
         (block): block is Anthropic.ToolUseBlock => block.type === "tool_use",
       );
@@ -461,11 +464,16 @@ export async function* runChatTurn(params: {
     }
 
     if (!finalText) {
-      forcedFinalization = true;
       if (terminationReason === "unknown") {
         terminationReason = "exploration_budget";
+        forcedFinalization = true;
+      } else if (
+        terminationReason === "sql_failure_budget" ||
+        terminationReason === "empty_model_answer"
+      ) {
+        forcedFinalization = true;
       }
-      log.info("chat.orchestrator", "forcing final answer", {
+      log.info("chat.orchestrator", "starting final answer synthesis", {
         sessionId: session.id,
         explorationRounds,
         toolCallCount,
@@ -478,13 +486,12 @@ export async function* runChatTurn(params: {
         ...system,
         { type: "text", text: FINALIZATION_INSTRUCTION },
       ];
+      yield { type: "status", text: "Przygotowuję odpowiedź…" };
       const finalStream = anthropic.messages.stream({
         model: CHAT_MODEL,
         max_tokens: MAX_OUTPUT_TOKENS,
         system: finalizationSystem,
         messages,
-        tools,
-        tool_choice: { type: "none" },
       });
       let finalizationText = "";
       for await (const event of finalStream) {
@@ -493,6 +500,8 @@ export async function* runChatTurn(params: {
           event.delta.type === "text_delta"
         ) {
           finalizationText += event.delta.text;
+          finalAnswerStreamed = true;
+          yield { type: "delta", text: event.delta.text };
         }
       }
       const finalMessage = await finalStream.finalMessage();
@@ -501,7 +510,9 @@ export async function* runChatTurn(params: {
       if (!finalText) {
         throw new ChatResponseIncompleteError();
       }
-      terminationReason = "forced_finalization";
+      terminationReason = forcedFinalization
+        ? "forced_finalization"
+        : "final_synthesis";
     }
   } catch (error) {
     log.error("chat.orchestrator", "turn failed", {
@@ -527,7 +538,9 @@ export async function* runChatTurn(params: {
 
   const responseMs = Date.now() - turnStartedAt;
 
-  yield { type: "delta", text: finalText };
+  if (!finalAnswerStreamed) {
+    yield { type: "delta", text: finalText };
+  }
 
   const assistant = await createChatMessage({
     chatSessionId: session.id,
