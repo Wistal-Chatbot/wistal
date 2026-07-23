@@ -289,6 +289,23 @@ export async function retryMessage(
   return pumpTurnStream(res, handlers);
 }
 
+/** Regenerates the latest turn without inserting the user message again. */
+export async function redoLatestMessage(
+  sessionId: string,
+  handlers: StreamHandlers,
+): Promise<void> {
+  const res = await fetch(
+    `/api/chat/sessions/${sessionId}/messages/redo`,
+    {
+      method: "POST",
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+    },
+  );
+  return pumpTurnStream(res, handlers);
+}
+
 /**
  * Runs a quick action in a session and streams the answer. `input` is the raw
  * user value (or null); the backend validates it against the action's

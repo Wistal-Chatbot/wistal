@@ -16,6 +16,7 @@ import {
   EditIcon,
   MenuIcon,
   PlusIcon,
+  RefreshIcon,
   SearchIcon,
   SendIcon,
 } from "../_components/icons";
@@ -29,6 +30,7 @@ import {
   fetchSession,
   fetchSessions,
   messagesToUi,
+  redoLatestMessage,
   retryMessage,
   setWebSearch as apiSetWebSearch,
   streamMessage,
@@ -469,6 +471,78 @@ export function ChatView({
     }
   }
 
+  async function redoLastTurn() {
+    if (sending || !activeId) return;
+
+    const lastUserIndex = messages.findLastIndex((message) => message.role === "user");
+    if (lastUserIndex < 0) return;
+
+    const botId = nextId("bot");
+    const pendingBot: UiMessage = {
+      id: botId,
+      role: "bot",
+      time: nowTime(),
+      content: "",
+      pending: true,
+      workingStatus: "Ponawiam wiadomość…",
+    };
+    setMessages((prev) => [...prev.slice(0, lastUserIndex + 1), pendingBot]);
+    setSending(true);
+
+    const patchBot = (patch: Partial<UiMessage>) =>
+      setMessages((prev) =>
+        prev.map((message) =>
+          message.id === botId ? { ...message, ...patch } : message,
+        ),
+      );
+
+    try {
+      await redoLatestMessage(activeId, {
+        onStatus: (workingStatus) => patchBot({ workingStatus }),
+        onDelta: (delta) =>
+          setMessages((prev) =>
+            prev.map((message) =>
+              message.id === botId
+                ? {
+                    ...message,
+                    workingStatus: null,
+                    content: message.content + delta,
+                  }
+                : message,
+            ),
+          ),
+        onMeta: (source, metrics, meta) =>
+          patchBot({
+            id: String(meta.messageId),
+            source,
+            metrics,
+            pending: false,
+            workingStatus: null,
+          }),
+        onError: (error) =>
+          patchBot({
+            id: error.messageId ? String(error.messageId) : botId,
+            content: error.message,
+            errorCode: error.errorCode,
+            retryable: error.retryable,
+            pending: false,
+            workingStatus: null,
+          }),
+      });
+    } catch {
+      patchBot({
+        content: "Nie udało się połączyć z serwerem. Spróbuj ponownie.",
+        errorCode: "CHAT_NETWORK_ERROR",
+        retryable: false,
+        pending: false,
+        workingStatus: null,
+      });
+    } finally {
+      patchBot({ pending: false, workingStatus: null });
+      setSending(false);
+    }
+  }
+
   async function send(text?: string) {
     const value = (text ?? chatInput).trim();
     if (!value || sending) return;
@@ -655,7 +729,7 @@ export function ChatView({
               </div>
             ) : null}
 
-            {messages.map((msg) =>
+            {messages.map((msg, index) =>
               msg.role === "bot" ? (
                 <div className={styles.botRow} key={msg.id}>
                   <div className={styles.botAvatar}>
@@ -807,7 +881,21 @@ export function ChatView({
               ) : (
                 <div className={styles.userRow} key={msg.id}>
                   <div className={styles.userBubble}>{msg.content}</div>
-                  <div className={styles.userTime}>{msg.time}</div>
+                  <div className={styles.userMeta}>
+                    <div className={styles.userTime}>{msg.time}</div>
+                    {index === messages.findLastIndex((item) => item.role === "user") ? (
+                      <button
+                        type="button"
+                        className={styles.redoButton}
+                        aria-label="Ponów ostatnią wiadomość"
+                        title="Ponów wiadomość"
+                        disabled={sending}
+                        onClick={() => void redoLastTurn()}
+                      >
+                        <RefreshIcon size={14} />
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
               ),
             )}
