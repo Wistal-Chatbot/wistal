@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -52,6 +52,8 @@ type TurnStream = (
   sessionId: string,
   handlers: StreamHandlers,
 ) => Promise<void>;
+
+const CHAT_INPUT_MAX_HEIGHT = 160;
 
 function nowTime() {
   return new Date().toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" });
@@ -110,12 +112,16 @@ export function ChatView({
     if (editingTitle) titleInputRef.current?.select();
   }, [editingTitle]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const input = chatInputRef.current;
     if (!input) return;
 
-    input.style.height = "0";
-    input.style.height = `${Math.min(input.scrollHeight, 160)}px`;
+    input.style.height = "auto";
+    const borderHeight = input.offsetHeight - input.clientHeight;
+    input.style.height = `${Math.min(
+      input.scrollHeight + borderHeight,
+      CHAT_INPUT_MAX_HEIGHT,
+    )}px`;
   }, [chatInput]);
 
   // Load the admin-configured quick actions for the composer bar.
