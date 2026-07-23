@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { isTransientNetworkError, retryRead } from "../lib/db/retry-read";
+import {
+  isDatabaseUnavailableError,
+  isTransientNetworkError,
+  retryRead,
+} from "../lib/db/retry-read";
 
 test("detects a transient network code nested inside a query error", () => {
   const connectionError = Object.assign(new Error("connection reset"), {
@@ -18,6 +22,14 @@ test("does not classify a database error as transient", () => {
   });
 
   assert.equal(isTransientNetworkError(databaseError), false);
+});
+
+test("classifies a nested DNS failure as database unavailable without retrying it", () => {
+  const dnsError = Object.assign(new Error("host not found"), { code: "ENOTFOUND" });
+  const queryError = new Error("query failed", { cause: dnsError });
+
+  assert.equal(isDatabaseUnavailableError(queryError), true);
+  assert.equal(isTransientNetworkError(queryError), false);
 });
 
 test("retries a read after a transient connection failure", async () => {

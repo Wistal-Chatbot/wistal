@@ -7,6 +7,12 @@ const TRANSIENT_NETWORK_CODES = new Set([
   "ETIMEDOUT",
 ]);
 
+const DATABASE_UNAVAILABLE_CODES = new Set([
+  ...TRANSIENT_NETWORK_CODES,
+  "EAI_AGAIN",
+  "ENOTFOUND",
+]);
+
 type ErrorWithCause = {
   cause?: unknown;
   code?: unknown;
@@ -18,18 +24,26 @@ function errorCode(error: unknown): string | null {
   return typeof code === "string" ? code : null;
 }
 
-export function isTransientNetworkError(error: unknown): boolean {
+function hasNestedErrorCode(error: unknown, codes: ReadonlySet<string>): boolean {
   let current = error;
 
   for (let depth = 0; depth < 5 && current; depth += 1) {
     const code = errorCode(current);
-    if (code && TRANSIENT_NETWORK_CODES.has(code)) return true;
+    if (code && codes.has(code)) return true;
 
     if (typeof current !== "object") return false;
     current = (current as ErrorWithCause).cause;
   }
 
   return false;
+}
+
+export function isTransientNetworkError(error: unknown): boolean {
+  return hasNestedErrorCode(error, TRANSIENT_NETWORK_CODES);
+}
+
+export function isDatabaseUnavailableError(error: unknown): boolean {
+  return hasNestedErrorCode(error, DATABASE_UNAVAILABLE_CODES);
 }
 
 function wait(milliseconds: number): Promise<void> {
