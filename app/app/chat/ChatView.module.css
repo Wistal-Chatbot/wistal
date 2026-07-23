@@ -644,7 +644,42 @@
   color: #b3bac4;
   font-family: var(--font-ibm-plex-mono), monospace;
   font-size: 12px;
+}
+
+.userMeta {
+  align-items: center;
+  display: flex;
+  gap: 4px;
   margin-top: 6px;
+}
+
+.redoButton {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  color: #9aa3b1;
+  cursor: pointer;
+  display: inline-flex;
+  height: 24px;
+  justify-content: center;
+  padding: 0;
+  width: 24px;
+}
+
+.redoButton:hover:not(:disabled) {
+  background: #eef1f5;
+  color: var(--primary);
+}
+
+.redoButton:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.redoButton:disabled {
+  cursor: default;
+  opacity: 0.45;
 }
 
 /* ── Composer ────────────────────────────────────────────────────────── */
