@@ -129,6 +129,14 @@ supported from the private retry context stored with the failure.
 - `404` invalid session/message · `409` non-retryable, already retried, concurrent
   retry, or stale quick-action configuration · `429` rate/token limit.
 
+### `POST /api/chat/sessions/:sessionId/messages/redo`
+Regenerate the answer to the latest user message without inserting that user
+message again. If an assistant answer already exists, it is marked as replaced
+and the newly streamed answer takes its place in conversation history.
+- Success streams the replacement answer as `ChatTurnEvent`.
+- `404` invalid session · `409` no latest user turn or concurrent redo · `429`
+  rate/token limit.
+
 ---
 
 ## Szybkie akcje (quick actions) — `/api/quick-actions`

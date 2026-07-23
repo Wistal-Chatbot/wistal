@@ -56,6 +56,62 @@ export async function claimChatMessageRetry(
 }
 
 /**
+ * Resolves the latest visible user turn and retires its current assistant answer,
+ * if one exists. The update guard makes concurrent redo requests safe: only one
+ * request can claim the answer that is currently visible.
+ */
+export async function claimLatestChatTurnRedo(
+  sessionId: string,
+): Promise<
+  | { userMessage: ChatMessage; assistantMessage: ChatMessage | null }
+  | null
+> {
+  return db.transaction(async (tx) => {
+    const latest = await tx
+      .select()
+      .from(chatMessages)
+      .where(
+        and(
+          eq(chatMessages.chatSessionId, sessionId),
+          eq(chatMessages.isRetried, false),
+        ),
+      )
+      .orderBy(desc(chatMessages.id))
+      .limit(2);
+
+    const [newest, previous] = latest;
+    const userMessage =
+      newest?.messageType === "user"
+        ? newest
+        : newest?.messageType === "assistant" &&
+            previous?.messageType === "user"
+          ? previous
+          : null;
+    if (!userMessage) return null;
+
+    if (newest.messageType === "user") {
+      return { userMessage, assistantMessage: null };
+    }
+
+    const [assistantMessage] = await tx
+      .update(chatMessages)
+      .set({ isRetried: true })
+      .where(
+        and(
+          eq(chatMessages.id, newest.id),
+          eq(chatMessages.chatSessionId, sessionId),
+          eq(chatMessages.messageType, "assistant"),
+          eq(chatMessages.isRetried, false),
+        ),
+      )
+      .returning();
+
+    if (!assistantMessage) return null;
+    return { userMessage, assistantMessage };
+  });
+}
+
+/**
  * The last `limit` messages of a session in chronological (ascending) order —
  * ready to map onto the Anthropic `messages` array (~6 turns of history).
  */
