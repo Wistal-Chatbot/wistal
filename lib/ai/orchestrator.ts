@@ -41,6 +41,15 @@ export type ChatTurnEvent =
 const MAX_ITERATIONS = 5;
 const MAX_SQL_RETRIES = 2;
 const ROW_LIMIT = 500;
+/**
+ * Rows actually serialized into the `tool_result` handed back to the model. The
+ * query still executes with `LIMIT 500` (ROW_LIMIT) so `row_count` and truncation
+ * detection stay accurate, but only the first MODEL_ROW_LIMIT rows are paid for as
+ * (uncached) model input on the summarize call — the biggest per-message cost.
+ */
+const MODEL_ROW_LIMIT = 150;
+/** Prior messages replayed as context each turn (kept small — resent uncached). */
+const HISTORY_MESSAGE_LIMIT = 6;
 const STATEMENT_TIMEOUT_MS = 10_000;
 
 function toAnthropicMessage(message: ChatMessage): Anthropic.MessageParam {
@@ -75,7 +84,7 @@ export async function* runChatTurn(params: {
   const anthropic = getAnthropic();
   const allowlist = await getPublicTableAllowlist();
 
-  const history = await getRecentMessages(session.id);
+  const history = await getRecentMessages(session.id, HISTORY_MESSAGE_LIMIT);
   const messages: Anthropic.MessageParam[] = history
     .filter((m) => m.messageType === "user" || m.messageType === "assistant")
     .map(toAnthropicMessage);
@@ -343,10 +352,15 @@ export async function* runChatTurn(params: {
             executionMs,
             llmModel: CHAT_MODEL,
           });
+          const rowsForModel = rows.slice(0, MODEL_ROW_LIMIT);
           toolResults.push({
             type: "tool_result",
             tool_use_id: toolUse.id,
-            content: JSON.stringify({ row_count: rows.length, rows }),
+            content: JSON.stringify({
+              row_count: rows.length,
+              rows_shown: rowsForModel.length,
+              rows: rowsForModel,
+            }),
           });
         } catch (error) {
           log.error("chat.orchestrator", "sql execution failed", {
