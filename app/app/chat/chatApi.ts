@@ -128,7 +128,15 @@ export interface StreamHandlers {
     metrics: UiMetrics | null,
     meta: StreamMeta,
   ) => void;
-  onError: (message: string) => void;
+  onError: (error: StreamError) => void;
+}
+
+export interface StreamError {
+  message: string;
+  messageId: number | null;
+  errorCode: string | null;
+  retryable: boolean;
+  isRetried: boolean;
 }
 
 /**
@@ -142,7 +150,14 @@ export function dispatchTurnStreamLine(
 ): void {
   const trimmed = line.trim();
   if (!trimmed) return;
-  let event: { type?: string; text?: string; error?: string } & Partial<StreamMeta>;
+  let event: {
+    type?: string;
+    text?: string;
+    error?: string;
+    errorCode?: string;
+    retryable?: boolean;
+    isRetried?: boolean;
+  } & Partial<StreamMeta>;
   try {
     event = JSON.parse(trimmed);
   } catch {
@@ -169,7 +184,15 @@ export function dispatchTurnStreamLine(
       meta,
     );
   } else if (event.type === "error" && typeof event.error === "string") {
-    handlers.onError(event.error);
+    handlers.onError({
+      message: event.error,
+      messageId:
+        typeof event.messageId === "number" ? event.messageId : null,
+      errorCode:
+        typeof event.errorCode === "string" ? event.errorCode : null,
+      retryable: event.retryable === true,
+      isRetried: event.isRetried === true,
+    });
   }
 }
 
@@ -178,14 +201,39 @@ async function pumpTurnStream(
   handlers: StreamHandlers,
 ): Promise<void> {
   if (!res.ok || !res.body) {
-    let msg = "Wystąpił błąd. Spróbuj ponownie.";
+    let error: StreamError = {
+      message: "Wystąpił błąd. Spróbuj ponownie.",
+      messageId: null,
+      errorCode: null,
+      retryable: false,
+      isRetried: false,
+    };
     try {
-      const data = (await res.json()) as { error?: string };
-      if (data?.error) msg = data.error;
+      const data = (await res.json()) as {
+        error?: string;
+        messageId?: number;
+        errorCode?: string;
+        code?: string;
+        retryable?: boolean;
+        isRetried?: boolean;
+      };
+      error = {
+        message: data.error ?? error.message,
+        messageId:
+          typeof data.messageId === "number" ? data.messageId : null,
+        errorCode:
+          typeof data.errorCode === "string"
+            ? data.errorCode
+            : typeof data.code === "string"
+              ? data.code
+              : "CHAT_REQUEST_FAILED",
+        retryable: data.retryable === true,
+        isRetried: data.isRetried === true,
+      };
     } catch {
       // keep generic message
     }
-    handlers.onError(msg);
+    handlers.onError(error);
     return;
   }
 
@@ -220,6 +268,23 @@ export async function streamMessage(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ message, stream: true }),
   });
+  return pumpTurnStream(res, handlers);
+}
+
+export async function retryMessage(
+  sessionId: string,
+  messageId: string,
+  handlers: StreamHandlers,
+): Promise<void> {
+  const res = await fetch(
+    `/api/chat/sessions/${sessionId}/messages/${messageId}/retry`,
+    {
+      method: "POST",
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+    },
+  );
   return pumpTurnStream(res, handlers);
 }
 
@@ -332,12 +397,19 @@ export function dtoToUiMessage(dto: MessageDto): UiMessage {
     content: dto.content,
     source: toSource(dto.metadata.tables, dto.rowCount),
     metrics: toMetrics(dto.metadata.responseMs, dto.metadata.tokensUsed),
+    errorCode: dto.errorCode,
+    retryable: dto.retryable,
+    isRetried: dto.isRetried,
   };
 }
 
 /** Maps persisted messages to UI messages, keeping only user/assistant turns. */
 export function messagesToUi(dtos: MessageDto[]): UiMessage[] {
   return dtos
-    .filter((m) => m.messageType === "user" || m.messageType === "assistant")
+    .filter(
+      (m) =>
+        (m.messageType === "user" || m.messageType === "assistant") &&
+        !m.isRetried,
+    )
     .map(dtoToUiMessage);
 }

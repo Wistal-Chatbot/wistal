@@ -29,6 +29,7 @@ import {
   fetchSession,
   fetchSessions,
   messagesToUi,
+  retryMessage,
   setWebSearch as apiSetWebSearch,
   streamMessage,
   streamQuickAction,
@@ -334,18 +335,96 @@ export function ChatView({
           finishWorkingStatus();
           patchBot({ source, metrics, pending: false });
         },
-        onError: (msg) => {
+        onError: (error) => {
           clearWorkingStatus();
           patchBot({
-            content: msg,
+            id: error.messageId ? String(error.messageId) : botId,
+            content: error.message,
             source: null,
             pending: false,
+            errorCode: error.errorCode,
+            retryable: error.retryable,
+            isRetried: error.isRetried,
           });
         },
       });
     } finally {
       finishWorkingStatus();
       patchBot({ pending: false });
+      setSending(false);
+    }
+  }
+
+  async function retryFailedMessage(message: UiMessage) {
+    if (sending || !activeId || !message.retryable || !message.errorCode) return;
+
+    const originalId = message.id;
+    setSending(true);
+    setMessages((prev) =>
+      prev.map((item) =>
+        item.id === originalId
+          ? {
+              ...item,
+              content: "",
+              errorCode: null,
+              retryable: false,
+              pending: true,
+              workingStatus: "Ponawiam próbę…",
+            }
+          : item,
+      ),
+    );
+
+    const patch = (next: Partial<UiMessage>) =>
+      setMessages((prev) =>
+        prev.map((item) =>
+          item.id === originalId || item.id === next.id
+            ? { ...item, ...next }
+            : item,
+        ),
+      );
+
+    try {
+      await retryMessage(activeId, originalId, {
+        onStatus: (workingStatus) => patch({ workingStatus }),
+        onDelta: (delta) =>
+          setMessages((prev) =>
+            prev.map((item) =>
+              item.id === originalId
+                ? {
+                    ...item,
+                    workingStatus: null,
+                    content: item.content + delta,
+                  }
+                : item,
+            ),
+          ),
+        onMeta: (source, metrics, meta) =>
+          patch({
+            id: String(meta.messageId),
+            source,
+            metrics,
+            pending: false,
+            workingStatus: null,
+          }),
+        onError: (error) => {
+          const persistedRetryFailure = error.messageId !== null;
+          patch({
+            id: error.messageId ? String(error.messageId) : originalId,
+            content: error.message,
+            errorCode: persistedRetryFailure
+              ? error.errorCode
+              : message.errorCode,
+            retryable: persistedRetryFailure
+              ? error.retryable
+              : message.retryable,
+            pending: false,
+            workingStatus: null,
+          });
+        },
+      });
+    } finally {
+      patch({ pending: false, workingStatus: null });
       setSending(false);
     }
   }
@@ -548,20 +627,47 @@ export function ChatView({
                       leaving={msg.workingStatusLeaving ?? false}
                     />
                     {msg.content || !msg.workingStatus ? (
-                      <div className={styles.botBubble}>
+                      <div
+                        className={
+                          msg.errorCode ? styles.errorBubble : styles.botBubble
+                        }
+                        role={msg.errorCode ? "alert" : undefined}
+                      >
                         {msg.pending && !msg.content ? (
                           <span className={styles.typing}>Generuję odpowiedź…</span>
                         ) : (
-                          <div className={styles.markdown}>
-                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                              {msg.content}
-                            </ReactMarkdown>
-                          </div>
+                          msg.errorCode ? (
+                            <div className={styles.errorContent}>
+                              <div className={styles.errorTitle}>
+                                Nie udało się przygotować odpowiedzi
+                              </div>
+                              <div>{msg.content}</div>
+                              <div className={styles.errorCode}>
+                                Kod: {msg.errorCode}
+                              </div>
+                              {msg.retryable ? (
+                                <button
+                                  type="button"
+                                  className={styles.retryButton}
+                                  disabled={sending}
+                                  onClick={() => void retryFailedMessage(msg)}
+                                >
+                                  Spróbuj ponownie
+                                </button>
+                              ) : null}
+                            </div>
+                          ) : (
+                            <div className={styles.markdown}>
+                              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                {msg.content}
+                              </ReactMarkdown>
+                            </div>
+                          )
                         )}
                       </div>
                     ) : null}
 
-                    {!msg.pending ? (
+                    {!msg.pending && !msg.errorCode ? (
                       <div className={styles.botMeta}>
                         {msg.source ? (
                           <>

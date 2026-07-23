@@ -6,6 +6,58 @@
   position: relative;
 }
 
+.errorBubble {
+  background: #fff4f2;
+  border: 1px solid #dc8d81;
+  border-left: 4px solid #b4402e;
+  border-radius: 8px;
+  color: #6f281d;
+  line-height: 1.5;
+  max-width: 760px;
+  padding: 15px 16px;
+}
+
+.errorContent {
+  display: flex;
+  flex-direction: column;
+  font-size: 14px;
+  gap: 7px;
+}
+
+.errorTitle {
+  color: #762b20;
+  font-weight: 700;
+}
+
+.errorCode {
+  color: #8c4a40;
+  font-family: var(--font-mono), monospace;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+
+.retryButton {
+  align-self: flex-start;
+  background: #b4402e;
+  border: 0;
+  border-radius: 7px;
+  color: #fff;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  margin-top: 3px;
+  padding: 8px 12px;
+}
+
+.retryButton:hover:not(:disabled) {
+  background: #963426;
+}
+
+.retryButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 /* ── Session history sidebar ─────────────────────────────────────────── */
 
 .history {

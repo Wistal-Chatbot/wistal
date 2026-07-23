@@ -33,6 +33,10 @@ export interface UiMessage {
   workingStatus?: string | null;
   /** Keeps the status mounted briefly while its exit animation runs. */
   workingStatusLeaving?: boolean;
+  /** Persisted assistant failure; rendered as a dedicated alert card. */
+  errorCode?: string | null;
+  retryable?: boolean;
+  isRetried?: boolean;
 }
 
 export interface UiSession {
