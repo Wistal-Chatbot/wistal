@@ -100,3 +100,32 @@ export async function persistChatTokenLimitError(params: {
     isRetried: false,
   };
 }
+
+export async function persistKnownChatError(params: {
+  sessionId: string;
+  userId: string;
+  retryContext: RetryContext;
+  message: string;
+  code: string;
+  retryable: boolean;
+}) {
+  const message = await createChatMessage({
+    chatSessionId: params.sessionId,
+    userId: params.userId,
+    messageType: "assistant",
+    content: params.message,
+    errorCode: params.code,
+    retryable: params.retryable,
+    metadata: { retryContext: params.retryContext },
+  });
+  await touchChatSession(params.sessionId);
+  return {
+    type: "error" as const,
+    error: message.content,
+    messageId: message.id,
+    userMessageId: params.retryContext.userMessageId,
+    errorCode: params.code,
+    retryable: params.retryable,
+    isRetried: false,
+  };
+}

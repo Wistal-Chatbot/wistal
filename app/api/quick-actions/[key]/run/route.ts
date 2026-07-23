@@ -5,6 +5,7 @@ import {
   persistChatError,
   persistChatRateLimitError,
   persistChatTokenLimitError,
+  persistKnownChatError,
   type RetryContext,
 } from "@/lib/ai/chat-errors";
 import { checkAiRequestRateLimit } from "@/lib/ai/request-rate-limit";
@@ -70,34 +71,54 @@ export async function POST(
     return Response.json({ error: "Nie znaleziono sesji." }, { status: 404 });
   }
 
-  const earlyConfig = parseCustomInput(action.customInput);
+  const config = parseCustomInput(action.customInput);
+  const webSearchEnabled = session.webSearchEnabled || action.usesWebSearch;
+  const isRowAction = "type" in config && config.type === "row_from_table";
+
+  let userMessageText: string;
+  let normalizedInput = input;
+  if (isRowAction) {
+    normalizedInput = (input ?? "").trim();
+    if (!normalizedInput) {
+      return Response.json(
+        { error: `Wybierz wartość dla pola „${config.label}”.` },
+        { status: 400 },
+      );
+    }
+    userMessageText = `${action.namePl}: ${normalizedInput}`;
+  } else {
+    const resolved = validateAndResolvePrompt(action, input);
+    if (!resolved.ok) {
+      return Response.json({ error: resolved.error }, { status: 400 });
+    }
+    userMessageText = resolved.prompt;
+  }
+
+  // Persist exactly once before any infrastructure or external API call.
+  const userMessage = await createChatMessage({
+    chatSessionId: session.id,
+    userId: user.id,
+    messageType: "user",
+    content: userMessageText,
+  });
+  await setSessionTitleIfEmpty(session.id, userMessageText.slice(0, 60));
+  const retryContextForTurn: RetryContext = {
+    kind: "quick_action",
+    userMessageId: userMessage.id,
+    key,
+    input: normalizedInput,
+    variant: isRowAction ? "row" : "prompt",
+  };
+
   let limited;
   try {
     limited = await checkAiRequestRateLimit(user.id);
   } catch (error) {
-    const displayText = input ? `${action.namePl}: ${input}` : action.namePl;
-    const failedUserMessage = await createChatMessage({
-      chatSessionId: session.id,
-      userId: user.id,
-      messageType: "user",
-      content: displayText,
-    });
-    await setSessionTitleIfEmpty(session.id, displayText.slice(0, 60));
-    const retryContext: RetryContext = {
-      kind: "quick_action",
-      userMessageId: failedUserMessage.id,
-      key,
-      input,
-      variant:
-        "type" in earlyConfig && earlyConfig.type === "row_from_table"
-          ? "row"
-          : "prompt",
-    };
     const event = await persistChatError({
       error,
       sessionId: session.id,
       userId: user.id,
-      retryContext,
+      retryContext: retryContextForTurn,
     });
     return Response.json(event, { status: 502 });
   }
@@ -107,27 +128,10 @@ export async function POST(
       userId: user.id,
       retryAfterSeconds: limited.retryAfterSeconds,
     });
-    const displayText = input ? `${action.namePl}: ${input}` : action.namePl;
-    const failedUserMessage = await createChatMessage({
-      chatSessionId: session.id,
-      userId: user.id,
-      messageType: "user",
-      content: displayText,
-    });
-    await setSessionTitleIfEmpty(session.id, displayText.slice(0, 60));
     const event = await persistChatRateLimitError({
       sessionId: session.id,
       userId: user.id,
-      retryContext: {
-        kind: "quick_action",
-        userMessageId: failedUserMessage.id,
-        key,
-        input,
-        variant:
-          "type" in earlyConfig && earlyConfig.type === "row_from_table"
-            ? "row"
-            : "prompt",
-      },
+      retryContext: retryContextForTurn,
       retryAfterSeconds: limited.retryAfterSeconds,
     });
     return Response.json(
@@ -144,29 +148,11 @@ export async function POST(
   try {
     tokenLimit = await checkMonthlyTokenLimit();
   } catch (error) {
-    const displayText = input ? `${action.namePl}: ${input}` : action.namePl;
-    const failedUserMessage = await createChatMessage({
-      chatSessionId: session.id,
-      userId: user.id,
-      messageType: "user",
-      content: displayText,
-    });
-    await setSessionTitleIfEmpty(session.id, displayText.slice(0, 60));
-    const retryContext: RetryContext = {
-      kind: "quick_action",
-      userMessageId: failedUserMessage.id,
-      key,
-      input,
-      variant:
-        "type" in earlyConfig && earlyConfig.type === "row_from_table"
-          ? "row"
-          : "prompt",
-    };
     const event = await persistChatError({
       error,
       sessionId: session.id,
       userId: user.id,
-      retryContext,
+      retryContext: retryContextForTurn,
     });
     return Response.json(event, { status: 502 });
   }
@@ -175,47 +161,20 @@ export async function POST(
       key,
       userId: user.id,
     });
-    const displayText = input ? `${action.namePl}: ${input}` : action.namePl;
-    const failedUserMessage = await createChatMessage({
-      chatSessionId: session.id,
-      userId: user.id,
-      messageType: "user",
-      content: displayText,
-    });
-    await setSessionTitleIfEmpty(session.id, displayText.slice(0, 60));
     const event = await persistChatTokenLimitError({
       sessionId: session.id,
       userId: user.id,
-      retryContext: {
-        kind: "quick_action",
-        userMessageId: failedUserMessage.id,
-        key,
-        input,
-        variant:
-          "type" in earlyConfig && earlyConfig.type === "row_from_table"
-            ? "row"
-            : "prompt",
-      },
+      retryContext: retryContextForTurn,
     });
     return Response.json(event, { status: 429 });
   }
 
-  const config = earlyConfig;
-  const webSearchEnabled = session.webSearchEnabled || action.usesWebSearch;
-
   let events: AsyncGenerator<ChatTurnEvent>;
-  let retryContextForTurn: RetryContext;
 
-  if ("type" in config && config.type === "row_from_table") {
+  if (isRowAction) {
     // Deterministic path: fetch the chosen row, then the AI only composes the
     // answer from it — no AI-generated SQL.
-    const chosenId = (input ?? "").trim();
-    if (!chosenId) {
-      return Response.json(
-        { error: `Wybierz wartość dla pola „${config.label}”.` },
-        { status: 400 },
-      );
-    }
+    const chosenId = normalizedInput as string;
 
     let fetched: { row: Record<string, unknown> | null; sql: string };
     try {
@@ -226,19 +185,26 @@ export async function POST(
         userId: user.id,
         error: error instanceof Error ? error.message : String(error),
       });
-      return Response.json(
-        { error: "Nie udało się pobrać danych akcji." },
-        { status: 502 },
-      );
+      const event = await persistChatError({
+        error,
+        sessionId: session.id,
+        userId: user.id,
+        retryContext: retryContextForTurn,
+      });
+      return Response.json(event, { status: 502 });
     }
     if (!fetched.row) {
-      return Response.json(
-        { error: "Wybrana wartość jest nieprawidłowa." },
-        { status: 400 },
-      );
+      const event = await persistKnownChatError({
+        sessionId: session.id,
+        userId: user.id,
+        retryContext: retryContextForTurn,
+        message: "Wybrana wartość jest nieprawidłowa.",
+        code: "QUICK_ACTION_INPUT_INVALID",
+        retryable: false,
+      });
+      return Response.json(event, { status: 400 });
     }
 
-    const userMessageText = `${action.namePl}: ${chosenId}`;
     log.info("quick-actions.run", "request (row_from_table)", {
       sessionId: session.id,
       userId: user.id,
@@ -246,21 +212,6 @@ export async function POST(
       table: config.table,
       stream: useStream,
     });
-    const userMessage = await createChatMessage({
-      chatSessionId: session.id,
-      userId: user.id,
-      messageType: "user",
-      content: userMessageText,
-    });
-    await setSessionTitleIfEmpty(session.id, userMessageText.slice(0, 60));
-
-    retryContextForTurn = {
-      kind: "quick_action",
-      userMessageId: userMessage.id,
-      key,
-      input: chosenId,
-      variant: "row",
-    };
     events = streamDataAnswer({
       session,
       user,
@@ -273,38 +224,15 @@ export async function POST(
     });
   } else {
     // text / no-input path: the AI generates the SQL (runChatTurn).
-    const resolved = validateAndResolvePrompt(action, input);
-    if (!resolved.ok) {
-      return Response.json({ error: resolved.error }, { status: 400 });
-    }
-    const promptText = resolved.prompt;
-
     log.info("quick-actions.run", "request", {
       sessionId: session.id,
       userId: user.id,
       key,
       webSearchEnabled,
       stream: useStream,
-      prompt: preview(promptText),
+      prompt: preview(userMessageText),
     });
 
-    // Persist the resolved prompt as the user turn; runChatTurn reads the
-    // session's messages, so it picks this up as the current turn.
-    const userMessage = await createChatMessage({
-      chatSessionId: session.id,
-      userId: user.id,
-      messageType: "user",
-      content: promptText,
-    });
-    await setSessionTitleIfEmpty(session.id, promptText.slice(0, 60));
-
-    retryContextForTurn = {
-      kind: "quick_action",
-      userMessageId: userMessage.id,
-      key,
-      input,
-      variant: "prompt",
-    };
     events = runChatTurn({
       session: { ...session, webSearchEnabled },
       user,

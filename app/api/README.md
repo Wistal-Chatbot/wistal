@@ -167,7 +167,10 @@ Light rate limit (60/min per user — called per keystroke).
 Run an action into a chat session. Body
 `{ session_id: uuid, input?: string(≤500) | null, stream?: boolean }` (`stream`
 defaults to `true`). Loads the action by `key`; same rate limit + token check as
-chat. Two paths:
+chat. After validating the action/session and resolving its input, the user
+message is persisted exactly once before Redis, usage, row-source, or AI calls.
+Any later failure persists a linked assistant error, so the complete turn remains
+visible after reload. Two paths:
 - **`row_from_table`** — deterministic: fetches the chosen row by `input` (its id)
   and the AI only composes the answer (no AI-generated SQL). `400` when `input` is
   empty/invalid; `502` when the row fetch fails.
