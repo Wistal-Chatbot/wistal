@@ -121,6 +121,7 @@ export interface StreamMeta {
 }
 
 export interface StreamHandlers {
+  onStatus: (text: string) => void;
   onDelta: (text: string) => void;
   onMeta: (
     source: UiSource | null,
@@ -132,9 +133,46 @@ export interface StreamHandlers {
 
 /**
  * Consumes an NDJSON turn stream (from the chat or quick-action endpoint),
- * dispatching `delta` / `meta` / `error` frames to the handlers. Both endpoints
- * emit the same `ChatTurnEvent` frames, so the plumbing is shared.
+ * dispatching `status` / `delta` / `meta` / `error` frames to the handlers.
+ * Both endpoints emit the same `ChatTurnEvent` frames, so the plumbing is shared.
  */
+export function dispatchTurnStreamLine(
+  line: string,
+  handlers: StreamHandlers,
+): void {
+  const trimmed = line.trim();
+  if (!trimmed) return;
+  let event: { type?: string; text?: string; error?: string } & Partial<StreamMeta>;
+  try {
+    event = JSON.parse(trimmed);
+  } catch {
+    return;
+  }
+  if (event.type === "status" && typeof event.text === "string") {
+    handlers.onStatus(event.text);
+  } else if (event.type === "delta" && typeof event.text === "string") {
+    handlers.onDelta(event.text);
+  } else if (event.type === "meta") {
+    const meta: StreamMeta = {
+      messageId: event.messageId ?? 0,
+      tables: event.tables ?? [],
+      rowCount: event.rowCount ?? null,
+      executionMs: event.executionMs ?? null,
+      responseMs: event.responseMs ?? null,
+      queryAuditId: event.queryAuditId ?? null,
+      tokensUsed: event.tokensUsed ?? null,
+      tokenUsage: event.tokenUsage ?? null,
+    };
+    handlers.onMeta(
+      toSource(meta.tables, meta.rowCount),
+      toMetrics(meta.responseMs, meta.tokensUsed),
+      meta,
+    );
+  } else if (event.type === "error" && typeof event.error === "string") {
+    handlers.onError(event.error);
+  }
+}
+
 async function pumpTurnStream(
   res: Response,
   handlers: StreamHandlers,
@@ -151,38 +189,6 @@ async function pumpTurnStream(
     return;
   }
 
-  const handleLine = (line: string) => {
-    const trimmed = line.trim();
-    if (!trimmed) return;
-    let event: { type?: string; text?: string; error?: string } & Partial<StreamMeta>;
-    try {
-      event = JSON.parse(trimmed);
-    } catch {
-      return;
-    }
-    if (event.type === "delta" && typeof event.text === "string") {
-      handlers.onDelta(event.text);
-    } else if (event.type === "meta") {
-      const meta: StreamMeta = {
-        messageId: event.messageId ?? 0,
-        tables: event.tables ?? [],
-        rowCount: event.rowCount ?? null,
-        executionMs: event.executionMs ?? null,
-        responseMs: event.responseMs ?? null,
-        queryAuditId: event.queryAuditId ?? null,
-        tokensUsed: event.tokensUsed ?? null,
-        tokenUsage: event.tokenUsage ?? null,
-      };
-      handlers.onMeta(
-        toSource(meta.tables, meta.rowCount),
-        toMetrics(meta.responseMs, meta.tokensUsed),
-        meta,
-      );
-    } else if (event.type === "error" && typeof event.error === "string") {
-      handlers.onError(event.error);
-    }
-  };
-
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
@@ -193,12 +199,12 @@ async function pumpTurnStream(
     buffer += decoder.decode(value, { stream: true });
     let nl: number;
     while ((nl = buffer.indexOf("\n")) >= 0) {
-      handleLine(buffer.slice(0, nl));
+      dispatchTurnStreamLine(buffer.slice(0, nl), handlers);
       buffer = buffer.slice(nl + 1);
     }
   }
   buffer += decoder.decode();
-  if (buffer.trim()) handleLine(buffer);
+  if (buffer.trim()) dispatchTurnStreamLine(buffer, handlers);
 }
 
 /** Sends a chat message and streams the orchestrator's answer. */

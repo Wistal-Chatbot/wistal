@@ -20,6 +20,7 @@ import {
   SendIcon,
 } from "../_components/icons";
 import { Combobox } from "../_components/Combobox";
+import { WorkingStatus } from "./WorkingStatus";
 import {
   createSession,
   dtoToUiSession,
@@ -74,6 +75,9 @@ export function ChatView({
   const clientSeq = useRef(0);
   const chatInputRef = useRef<HTMLTextAreaElement | null>(null);
   const copyResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const workingStatusExitTimers = useRef(
+    new Set<ReturnType<typeof setTimeout>>(),
+  );
   const titleInputRef = useRef<HTMLInputElement | null>(null);
 
   function nextId(prefix: string) {
@@ -82,8 +86,13 @@ export function ChatView({
   }
 
   useEffect(() => {
+    const exitTimers = workingStatusExitTimers.current;
     return () => {
       if (copyResetTimer.current) clearTimeout(copyResetTimer.current);
+      for (const timer of exitTimers) {
+        clearTimeout(timer);
+      }
+      exitTimers.clear();
     };
   }, []);
 
@@ -245,7 +254,14 @@ export function ChatView({
     const time = nowTime();
     const userMsg: UiMessage = { id: nextId("user"), role: "user", time, content: userText };
     const botId = nextId("bot");
-    const botMsg: UiMessage = { id: botId, role: "bot", time, content: "", pending: true };
+    const botMsg: UiMessage = {
+      id: botId,
+      role: "bot",
+      time,
+      content: "",
+      pending: true,
+      workingStatus: "Analizuję pytanie…",
+    };
     setMessages((prev) => [...prev, userMsg, botMsg]);
     setSending(true);
 
@@ -263,18 +279,72 @@ export function ChatView({
         prev.map((m) => (m.id === botId ? { ...m, ...patch } : m)),
       );
 
+    let workingStatusVisible = true;
+    let workingStatusExitTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const finishWorkingStatus = () => {
+      if (!workingStatusVisible || workingStatusExitTimer) return;
+      patchBot({ workingStatusLeaving: true });
+      workingStatusExitTimer = setTimeout(() => {
+        workingStatusVisible = false;
+        patchBot({ workingStatus: null, workingStatusLeaving: false });
+        if (workingStatusExitTimer) {
+          workingStatusExitTimers.current.delete(workingStatusExitTimer);
+        }
+        workingStatusExitTimer = null;
+      }, 260);
+      workingStatusExitTimers.current.add(workingStatusExitTimer);
+    };
+
+    const clearWorkingStatus = () => {
+      workingStatusVisible = false;
+      if (workingStatusExitTimer) {
+        clearTimeout(workingStatusExitTimer);
+        workingStatusExitTimers.current.delete(workingStatusExitTimer);
+        workingStatusExitTimer = null;
+      }
+      patchBot({ workingStatus: null, workingStatusLeaving: false });
+    };
+
     try {
       await stream(sid, {
-        onDelta: (delta) =>
+        onStatus: (workingStatus) => {
+          workingStatusVisible = true;
+          if (workingStatusExitTimer) {
+            clearTimeout(workingStatusExitTimer);
+            workingStatusExitTimers.current.delete(workingStatusExitTimer);
+            workingStatusExitTimer = null;
+          }
+          patchBot({ workingStatus, workingStatusLeaving: false });
+        },
+        onDelta: (delta) => {
+          finishWorkingStatus();
           setMessages((prev) =>
             prev.map((m) =>
-              m.id === botId ? { ...m, content: m.content + delta } : m,
+              m.id === botId
+                ? {
+                    ...m,
+                    content: m.content + delta,
+                  }
+                : m,
             ),
-          ),
-        onMeta: (source, metrics) => patchBot({ source, metrics, pending: false }),
-        onError: (msg) => patchBot({ content: msg, source: null, pending: false }),
+          );
+        },
+        onMeta: (source, metrics) => {
+          finishWorkingStatus();
+          patchBot({ source, metrics, pending: false });
+        },
+        onError: (msg) => {
+          clearWorkingStatus();
+          patchBot({
+            content: msg,
+            source: null,
+            pending: false,
+          });
+        },
       });
     } finally {
+      finishWorkingStatus();
       patchBot({ pending: false });
       setSending(false);
     }
@@ -473,17 +543,23 @@ export function ChatView({
                     <BotIcon size={20} />
                   </div>
                   <div className={styles.botBody}>
-                    <div className={styles.botBubble}>
-                      {msg.pending && !msg.content ? (
-                        <span className={styles.typing}>Generuję odpowiedź…</span>
-                      ) : (
-                        <div className={styles.markdown}>
-                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                            {msg.content}
-                          </ReactMarkdown>
-                        </div>
-                      )}
-                    </div>
+                    <WorkingStatus
+                      status={msg.workingStatus ?? null}
+                      leaving={msg.workingStatusLeaving ?? false}
+                    />
+                    {msg.content || !msg.workingStatus ? (
+                      <div className={styles.botBubble}>
+                        {msg.pending && !msg.content ? (
+                          <span className={styles.typing}>Generuję odpowiedź…</span>
+                        ) : (
+                          <div className={styles.markdown}>
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                              {msg.content}
+                            </ReactMarkdown>
+                          </div>
+                        )}
+                      </div>
+                    ) : null}
 
                     {!msg.pending ? (
                       <div className={styles.botMeta}>
