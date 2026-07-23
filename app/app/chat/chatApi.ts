@@ -196,16 +196,17 @@ export function dispatchTurnStreamLine(
   }
 }
 
-async function pumpTurnStream(
+export async function pumpTurnStream(
   res: Response,
   handlers: StreamHandlers,
 ): Promise<void> {
   if (!res.ok || !res.body) {
+    const serverFailure = res.status >= 500;
     let error: StreamError = {
       message: "Wystąpił błąd. Spróbuj ponownie.",
       messageId: null,
-      errorCode: null,
-      retryable: false,
+      errorCode: serverFailure ? "CHAT_SERVER_ERROR" : null,
+      retryable: serverFailure,
       isRetried: false,
     };
     try {
@@ -227,7 +228,7 @@ async function pumpTurnStream(
             : typeof data.code === "string"
               ? data.code
               : "CHAT_REQUEST_FAILED",
-        retryable: data.retryable === true,
+        retryable: data.retryable === true || serverFailure,
         isRetried: data.isRetried === true,
       };
     } catch {

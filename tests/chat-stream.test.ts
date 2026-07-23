@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   dispatchTurnStreamLine,
+  pumpTurnStream,
   type StreamHandlers,
 } from "../app/app/chat/chatApi";
 
@@ -69,4 +70,34 @@ test("dispatches persisted error metadata separately from its copy", () => {
   );
 
   assert.deepEqual(events, ["error:42:CHAT_UPSTREAM_TIMEOUT:true"]);
+});
+
+test("makes an unstructured HTTP 500 retryable", async () => {
+  let received:
+    | {
+        message: string;
+        errorCode: string | null;
+        retryable: boolean;
+      }
+    | undefined;
+  const handlers = recordingHandlers([]);
+  handlers.onError = (error) => {
+    received = error;
+  };
+
+  await pumpTurnStream(
+    new Response("<html>Internal Server Error</html>", {
+      status: 500,
+      headers: { "Content-Type": "text/html" },
+    }),
+    handlers,
+  );
+
+  assert.deepEqual(received, {
+    message: "Wystąpił błąd. Spróbuj ponownie.",
+    messageId: null,
+    errorCode: "CHAT_SERVER_ERROR",
+    retryable: true,
+    isRetried: false,
+  });
 });

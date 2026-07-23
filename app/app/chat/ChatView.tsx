@@ -46,6 +46,11 @@ type QaForm = {
   value: string;
 };
 
+type TurnStream = (
+  sessionId: string,
+  handlers: StreamHandlers,
+) => Promise<void>;
+
 function nowTime() {
   return new Date().toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" });
 }
@@ -80,6 +85,7 @@ export function ChatView({
     new Set<ReturnType<typeof setTimeout>>(),
   );
   const titleInputRef = useRef<HTMLInputElement | null>(null);
+  const localRetryStreams = useRef(new Map<string, TurnStream>());
 
   function nextId(prefix: string) {
     clientSeq.current += 1;
@@ -161,6 +167,7 @@ export function ChatView({
   );
 
   async function selectSession(s: UiSession) {
+    localRetryStreams.current.clear();
     setActiveId(s.id);
     setQaForm(null);
     setEditingTitle(false);
@@ -174,6 +181,7 @@ export function ChatView({
   }
 
   function newChat() {
+    localRetryStreams.current.clear();
     setQaForm(null);
     setChatInput("");
     setActiveId(null);
@@ -246,7 +254,7 @@ export function ChatView({
    */
   async function runTurn(
     userText: string,
-    stream: (sessionId: string, handlers: StreamHandlers) => Promise<void>,
+    stream: TurnStream,
   ) {
     if (sending) return;
     const sid = await ensureSession();
@@ -264,6 +272,7 @@ export function ChatView({
       workingStatus: "Analizuję pytanie…",
     };
     setMessages((prev) => [...prev, userMsg, botMsg]);
+    localRetryStreams.current.set(botId, stream);
     setSending(true);
 
     // Seed the sidebar title from the first turn (matches backend auto-title).
@@ -334,6 +343,7 @@ export function ChatView({
         onMeta: (source, metrics) => {
           finishWorkingStatus();
           patchBot({ source, metrics, pending: false });
+          localRetryStreams.current.delete(botId);
         },
         onError: (error) => {
           clearWorkingStatus();
@@ -346,7 +356,19 @@ export function ChatView({
             retryable: error.retryable,
             isRetried: error.isRetried,
           });
+          if (error.messageId !== null) {
+            localRetryStreams.current.delete(botId);
+          }
         },
+      });
+    } catch {
+      clearWorkingStatus();
+      patchBot({
+        content: "Nie udało się połączyć z serwerem. Spróbuj ponownie.",
+        source: null,
+        pending: false,
+        errorCode: "CHAT_NETWORK_ERROR",
+        retryable: true,
       });
     } finally {
       finishWorkingStatus();
@@ -359,6 +381,7 @@ export function ChatView({
     if (sending || !activeId || !message.retryable || !message.errorCode) return;
 
     const originalId = message.id;
+    const localRetryStream = localRetryStreams.current.get(originalId);
     setSending(true);
     setMessages((prev) =>
       prev.map((item) =>
@@ -385,7 +408,11 @@ export function ChatView({
       );
 
     try {
-      await retryMessage(activeId, originalId, {
+      const executeRetry: TurnStream = localRetryStream
+        ? localRetryStream
+        : (sid, handlers) => retryMessage(sid, originalId, handlers);
+
+      await executeRetry(activeId, {
         onStatus: (workingStatus) => patch({ workingStatus }),
         onDelta: (delta) =>
           setMessages((prev) =>
@@ -399,16 +426,21 @@ export function ChatView({
                 : item,
             ),
           ),
-        onMeta: (source, metrics, meta) =>
+        onMeta: (source, metrics, meta) => {
+          localRetryStreams.current.delete(originalId);
           patch({
             id: String(meta.messageId),
             source,
             metrics,
             pending: false,
             workingStatus: null,
-          }),
+          });
+        },
         onError: (error) => {
           const persistedRetryFailure = error.messageId !== null;
+          if (persistedRetryFailure) {
+            localRetryStreams.current.delete(originalId);
+          }
           patch({
             id: error.messageId ? String(error.messageId) : originalId,
             content: error.message,
@@ -422,6 +454,14 @@ export function ChatView({
             workingStatus: null,
           });
         },
+      });
+    } catch {
+      patch({
+        content: "Nie udało się połączyć z serwerem. Spróbuj ponownie.",
+        errorCode: message.errorCode || "CHAT_NETWORK_ERROR",
+        retryable: true,
+        pending: false,
+        workingStatus: null,
       });
     } finally {
       patch({ pending: false, workingStatus: null });
