@@ -669,10 +669,23 @@ export function ChatView({
                 rows={1}
                 onChange={(e) => setChatInput(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    void send();
+                  if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
+
+                  e.preventDefault();
+                  e.stopPropagation();
+
+                  if (e.shiftKey) {
+                    e.currentTarget.setRangeText(
+                      "\n",
+                      e.currentTarget.selectionStart,
+                      e.currentTarget.selectionEnd,
+                      "end",
+                    );
+                    setChatInput(e.currentTarget.value);
+                    return;
                   }
+
+                  void send();
                 }}
               />
               <button
