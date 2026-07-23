@@ -3,6 +3,7 @@ import "server-only";
 import { eq } from "drizzle-orm";
 
 import { db } from "@/lib/db/drizzle";
+import { retryRead } from "@/lib/db/retry-read";
 import { appUsers, type AppUser } from "@/lib/db/schema";
 import { getSessionPayload } from "./session";
 
@@ -16,11 +17,13 @@ export async function getCurrentUser(): Promise<AppUser | null> {
   const session = await getSessionPayload();
   if (!session) return null;
 
-  const [user] = await db
-    .select()
-    .from(appUsers)
-    .where(eq(appUsers.id, session.sub))
-    .limit(1);
+  const [user] = await retryRead(() =>
+    db
+      .select()
+      .from(appUsers)
+      .where(eq(appUsers.id, session.sub))
+      .limit(1),
+  );
 
   if (!user || !user.isActive) return null;
   return user;
