@@ -26,6 +26,7 @@ import {
   finalAnswerFromModelTurn,
   workingStatusForTools,
 } from "./turn-presentation";
+import { persistChatError, type RetryContext } from "./chat-errors";
 
 export type ChatTurnEvent =
   | { type: "status"; text: string }
@@ -41,7 +42,14 @@ export type ChatTurnEvent =
       tokensUsed: number | null;
       tokenUsage: TokenUsageMetadata | null;
     }
-  | { type: "error"; error: string };
+  | {
+      type: "error";
+      error: string;
+      messageId: number;
+      errorCode: string;
+      retryable: boolean;
+      isRetried: boolean;
+    };
 
 const MAX_ITERATIONS = 5;
 const MAX_SQL_RETRIES = 2;
@@ -83,16 +91,32 @@ export async function* runChatTurn(params: {
   user: AppUser;
   /** Audit trail source; `quick_action` when driven by a Szybka akcja. */
   source?: "chatbot" | "quick_action";
+  retryContext: RetryContext;
+  retryOfMessageId?: number | null;
 }): AsyncGenerator<ChatTurnEvent> {
   const turnStartedAt = Date.now();
-  const { session, user, source = "chatbot" } = params;
+  const {
+    session,
+    user,
+    source = "chatbot",
+    retryContext,
+    retryOfMessageId = null,
+  } = params;
   const anthropic = getAnthropic();
   yield { type: "status", text: "Analizuję pytanie…" };
   const allowlist = await getPublicTableAllowlist();
 
-  const history = await getRecentMessages(session.id, HISTORY_MESSAGE_LIMIT);
+  const history = await getRecentMessages(
+    session.id,
+    HISTORY_MESSAGE_LIMIT,
+    retryContext.userMessageId,
+  );
   const messages: Anthropic.MessageParam[] = history
-    .filter((m) => m.messageType === "user" || m.messageType === "assistant")
+    .filter(
+      (m) =>
+        (m.messageType === "user" || m.messageType === "assistant") &&
+        !m.errorCode,
+    )
     .map(toAnthropicMessage);
   // The Anthropic API requires the first message to be a user turn; the history
   // window can begin on an assistant message in long conversations.
@@ -421,7 +445,13 @@ export async function* runChatTurn(params: {
       error: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : undefined,
     });
-    yield { type: "error", error: "Serwis AI jest tymczasowo niedostępny." };
+    yield await persistChatError({
+      error,
+      sessionId: session.id,
+      userId: user.id,
+      retryContext,
+      retryOfMessageId,
+    });
     return;
   }
 
@@ -438,6 +468,7 @@ export async function* runChatTurn(params: {
     userId: user.id,
     messageType: "assistant",
     content: finalText,
+    retryOfMessageId,
     rowCount: lastRowCount,
     metadata: {
       tables: [...tablesUsedAll],

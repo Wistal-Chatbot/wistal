@@ -40,11 +40,14 @@ the endpoints that actually exist in the code. For the intended/full backend des
     rowCount: number | null; executionMs: number | null;
     responseMs: number | null; queryAuditId: number | null;
     tokensUsed: number | null; tokenUsage: TokenUsageMetadata | null }
-| { type: "error"; error: string }                // recoverable/terminal error
+| { type: "error"; error: string; messageId: number;
+    errorCode: string; retryable: boolean; isRetried: boolean }
 ```
 
 `status` is ephemeral UI feedback and is never persisted as message content.
 Tool-loop narration is withheld; only the final model turn is emitted as `delta`.
+Persisted `MessageDto` objects expose `errorCode`, `retryable`, `isRetried`, and
+`retryOfMessageId`. Internal `error_detail` is never serialized.
 
 ---
 
@@ -112,6 +115,19 @@ message) → run the orchestrator.
   on turn failure.
 - `400` invalid body · `404` session not found · `429` rate limited or
   `{ code: "AI_MONTHLY_TOKEN_LIMIT_EXCEEDED", error }`.
+
+Unexpected operational failures are stored as assistant error messages. A `502`
+returns the same public error fields as the stream event.
+
+### `POST /api/chat/sessions/:sessionId/messages/:messageId/retry`
+Retry one unresolved, retryable assistant error. The original user message is
+reused and is not inserted again. Normal messages and quick actions are both
+supported from the private retry context stored with the failure.
+- Success streams the replacement answer as `ChatTurnEvent` and marks the old
+  error `isRetried=true`.
+- Another operational failure persists a linked replacement error.
+- `404` invalid session/message · `409` non-retryable, already retried, concurrent
+  retry, or stale quick-action configuration · `429` rate/token limit.
 
 ---
 
@@ -316,6 +332,7 @@ GET    /api/chat/sessions/:sessionId
 PATCH  /api/chat/sessions/:sessionId
 PATCH  /api/chat/sessions/:sessionId/web-search
 POST   /api/chat/sessions/:sessionId/messages          # NDJSON stream
+POST   /api/chat/sessions/:sessionId/messages/:messageId/retry # NDJSON stream
 
 GET    /api/quick-actions
 GET    /api/quick-actions/:key/rows

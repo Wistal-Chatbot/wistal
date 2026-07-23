@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { runChatTurn, type ChatTurnEvent } from "@/lib/ai/orchestrator";
+import { persistChatError } from "@/lib/ai/chat-errors";
 import { checkMonthlyTokenLimit } from "@/lib/ai/token-usage";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { checkRateLimit } from "@/lib/auth/rate-limit";
@@ -67,20 +68,42 @@ export async function POST(
   });
 
   // Rate limit: 5/min and 200/day per user (architecture §6).
-  const [perMinute, perDay] = await Promise.all([
-    checkRateLimit({
-      namespace: "chat",
-      key: `user:${user.id}:minute`,
-      limit: 5,
-      windowSeconds: 60,
-    }),
-    checkRateLimit({
-      namespace: "chat",
-      key: `user:${user.id}:day`,
-      limit: 200,
-      windowSeconds: 24 * 60 * 60,
-    }),
-  ]);
+  let perMinute;
+  let perDay;
+  try {
+    [perMinute, perDay] = await Promise.all([
+      checkRateLimit({
+        namespace: "chat",
+        key: `user:${user.id}:minute`,
+        limit: 5,
+        windowSeconds: 60,
+      }),
+      checkRateLimit({
+        namespace: "chat",
+        key: `user:${user.id}:day`,
+        limit: 200,
+        windowSeconds: 24 * 60 * 60,
+      }),
+    ]);
+  } catch (error) {
+    const failedUserMessage = await createChatMessage({
+      chatSessionId: session.id,
+      userId: user.id,
+      messageType: "user",
+      content: message,
+    });
+    await setSessionTitleIfEmpty(session.id, message.slice(0, 60));
+    const event = await persistChatError({
+      error,
+      sessionId: session.id,
+      userId: user.id,
+      retryContext: {
+        kind: "chat",
+        userMessageId: failedUserMessage.id,
+      },
+    });
+    return Response.json(event, { status: 502 });
+  }
   const limited = !perMinute.allowed
     ? perMinute
     : !perDay.allowed
@@ -102,7 +125,28 @@ export async function POST(
   }
 
   // Monthly AI token limit (blocks only when live usage is available and over).
-  const tokenLimit = await checkMonthlyTokenLimit();
+  let tokenLimit;
+  try {
+    tokenLimit = await checkMonthlyTokenLimit();
+  } catch (error) {
+    const failedUserMessage = await createChatMessage({
+      chatSessionId: session.id,
+      userId: user.id,
+      messageType: "user",
+      content: message,
+    });
+    await setSessionTitleIfEmpty(session.id, message.slice(0, 60));
+    const event = await persistChatError({
+      error,
+      sessionId: session.id,
+      userId: user.id,
+      retryContext: {
+        kind: "chat",
+        userMessageId: failedUserMessage.id,
+      },
+    });
+    return Response.json(event, { status: 502 });
+  }
   if (!tokenLimit.allowed) {
     log.warn("chat.messages", "monthly token limit exceeded", {
       sessionId: session.id,
@@ -118,7 +162,7 @@ export async function POST(
   }
 
   // Persist the user message and seed the title from the first question.
-  await createChatMessage({
+  const userMessage = await createChatMessage({
     chatSessionId: session.id,
     userId: user.id,
     messageType: "user",
@@ -126,24 +170,28 @@ export async function POST(
   });
   await setSessionTitleIfEmpty(session.id, message.slice(0, 60));
 
-  const events = runChatTurn({ session, user });
+  const events = runChatTurn({
+    session,
+    user,
+    retryContext: { kind: "chat", userMessageId: userMessage.id },
+  });
 
   if (!useStream) {
     let text = "";
     let meta: Extract<ChatTurnEvent, { type: "meta" }> | null = null;
-    let error: string | null = null;
+    let error: Extract<ChatTurnEvent, { type: "error" }> | null = null;
     for await (const event of events) {
       if (event.type === "delta") text += event.text;
       else if (event.type === "meta") meta = event;
-      else if (event.type === "error") error = event.error;
+      else if (event.type === "error") error = event;
     }
     if (error) {
       log.error("chat.messages", "turn error (non-stream)", {
         sessionId: session.id,
         userId: user.id,
-        error,
+        error: error.error,
       });
-      return Response.json({ error }, { status: 502 });
+      return Response.json(error, { status: 502 });
     }
     return Response.json({ message: { content: text }, meta });
   }
@@ -161,11 +209,13 @@ export async function POST(
           userId: user.id,
           error: error instanceof Error ? error.message : String(error),
         });
-        controller.enqueue(
-          encoder.encode(
-            `${JSON.stringify({ type: "error", error: "Wystąpił błąd serwera." })}\n`,
-          ),
-        );
+        const event = await persistChatError({
+          error,
+          sessionId: session.id,
+          userId: user.id,
+          retryContext: { kind: "chat", userMessageId: userMessage.id },
+        });
+        controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
       } finally {
         controller.close();
       }

@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { streamDataAnswer } from "@/lib/ai/data-answer";
+import { persistChatError, type RetryContext } from "@/lib/ai/chat-errors";
 import { runChatTurn, type ChatTurnEvent } from "@/lib/ai/orchestrator";
 import { checkMonthlyTokenLimit } from "@/lib/ai/token-usage";
 import { parseCustomInput } from "@/lib/api/quick-actions-types";
@@ -65,20 +66,51 @@ export async function POST(
   }
 
   // Rate limit: 5/min and 200/day per user (mirrors the chat pipeline).
-  const [perMinute, perDay] = await Promise.all([
-    checkRateLimit({
-      namespace: "quick-actions",
-      key: `user:${user.id}:minute`,
-      limit: 5,
-      windowSeconds: 60,
-    }),
-    checkRateLimit({
-      namespace: "quick-actions",
-      key: `user:${user.id}:day`,
-      limit: 200,
-      windowSeconds: 24 * 60 * 60,
-    }),
-  ]);
+  const earlyConfig = parseCustomInput(action.customInput);
+  let perMinute;
+  let perDay;
+  try {
+    [perMinute, perDay] = await Promise.all([
+      checkRateLimit({
+        namespace: "quick-actions",
+        key: `user:${user.id}:minute`,
+        limit: 5,
+        windowSeconds: 60,
+      }),
+      checkRateLimit({
+        namespace: "quick-actions",
+        key: `user:${user.id}:day`,
+        limit: 200,
+        windowSeconds: 24 * 60 * 60,
+      }),
+    ]);
+  } catch (error) {
+    const displayText = input ? `${action.namePl}: ${input}` : action.namePl;
+    const failedUserMessage = await createChatMessage({
+      chatSessionId: session.id,
+      userId: user.id,
+      messageType: "user",
+      content: displayText,
+    });
+    await setSessionTitleIfEmpty(session.id, displayText.slice(0, 60));
+    const retryContext: RetryContext = {
+      kind: "quick_action",
+      userMessageId: failedUserMessage.id,
+      key,
+      input,
+      variant:
+        "type" in earlyConfig && earlyConfig.type === "row_from_table"
+          ? "row"
+          : "prompt",
+    };
+    const event = await persistChatError({
+      error,
+      sessionId: session.id,
+      userId: user.id,
+      retryContext,
+    });
+    return Response.json(event, { status: 502 });
+  }
   const limited = !perMinute.allowed
     ? perMinute
     : !perDay.allowed
@@ -100,7 +132,36 @@ export async function POST(
   }
 
   // Monthly AI token limit (blocks only when live usage is available and over).
-  const tokenLimit = await checkMonthlyTokenLimit();
+  let tokenLimit;
+  try {
+    tokenLimit = await checkMonthlyTokenLimit();
+  } catch (error) {
+    const displayText = input ? `${action.namePl}: ${input}` : action.namePl;
+    const failedUserMessage = await createChatMessage({
+      chatSessionId: session.id,
+      userId: user.id,
+      messageType: "user",
+      content: displayText,
+    });
+    await setSessionTitleIfEmpty(session.id, displayText.slice(0, 60));
+    const retryContext: RetryContext = {
+      kind: "quick_action",
+      userMessageId: failedUserMessage.id,
+      key,
+      input,
+      variant:
+        "type" in earlyConfig && earlyConfig.type === "row_from_table"
+          ? "row"
+          : "prompt",
+    };
+    const event = await persistChatError({
+      error,
+      sessionId: session.id,
+      userId: user.id,
+      retryContext,
+    });
+    return Response.json(event, { status: 502 });
+  }
   if (!tokenLimit.allowed) {
     log.warn("quick-actions.run", "monthly token limit exceeded", {
       key,
@@ -115,10 +176,11 @@ export async function POST(
     );
   }
 
-  const config = parseCustomInput(action.customInput);
+  const config = earlyConfig;
   const webSearchEnabled = session.webSearchEnabled || action.usesWebSearch;
 
   let events: AsyncGenerator<ChatTurnEvent>;
+  let retryContextForTurn: RetryContext;
 
   if ("type" in config && config.type === "row_from_table") {
     // Deterministic path: fetch the chosen row, then the AI only composes the
@@ -152,7 +214,7 @@ export async function POST(
       );
     }
 
-    const userMessage = `${action.namePl}: ${chosenId}`;
+    const userMessageText = `${action.namePl}: ${chosenId}`;
     log.info("quick-actions.run", "request (row_from_table)", {
       sessionId: session.id,
       userId: user.id,
@@ -160,14 +222,21 @@ export async function POST(
       table: config.table,
       stream: useStream,
     });
-    await createChatMessage({
+    const userMessage = await createChatMessage({
       chatSessionId: session.id,
       userId: user.id,
       messageType: "user",
-      content: userMessage,
+      content: userMessageText,
     });
-    await setSessionTitleIfEmpty(session.id, userMessage.slice(0, 60));
+    await setSessionTitleIfEmpty(session.id, userMessageText.slice(0, 60));
 
+    retryContextForTurn = {
+      kind: "quick_action",
+      userMessageId: userMessage.id,
+      key,
+      input: chosenId,
+      variant: "row",
+    };
     events = streamDataAnswer({
       session,
       user,
@@ -176,6 +245,7 @@ export async function POST(
       table: config.table,
       sqlExecuted: fetched.sql,
       source: "quick_action",
+      retryContext: retryContextForTurn,
     });
   } else {
     // text / no-input path: the AI generates the SQL (runChatTurn).
@@ -196,7 +266,7 @@ export async function POST(
 
     // Persist the resolved prompt as the user turn; runChatTurn reads the
     // session's messages, so it picks this up as the current turn.
-    await createChatMessage({
+    const userMessage = await createChatMessage({
       chatSessionId: session.id,
       userId: user.id,
       messageType: "user",
@@ -204,29 +274,37 @@ export async function POST(
     });
     await setSessionTitleIfEmpty(session.id, promptText.slice(0, 60));
 
+    retryContextForTurn = {
+      kind: "quick_action",
+      userMessageId: userMessage.id,
+      key,
+      input,
+      variant: "prompt",
+    };
     events = runChatTurn({
       session: { ...session, webSearchEnabled },
       user,
       source: "quick_action",
+      retryContext: retryContextForTurn,
     });
   }
 
   if (!useStream) {
     let text = "";
     let meta: Extract<ChatTurnEvent, { type: "meta" }> | null = null;
-    let error: string | null = null;
+    let error: Extract<ChatTurnEvent, { type: "error" }> | null = null;
     for await (const event of events) {
       if (event.type === "delta") text += event.text;
       else if (event.type === "meta") meta = event;
-      else if (event.type === "error") error = event.error;
+      else if (event.type === "error") error = event;
     }
     if (error) {
       log.error("quick-actions.run", "turn error (non-stream)", {
         sessionId: session.id,
         userId: user.id,
-        error,
+        error: error.error,
       });
-      return Response.json({ error }, { status: 502 });
+      return Response.json(error, { status: 502 });
     }
     return Response.json({ message: { content: text }, meta });
   }
@@ -244,11 +322,13 @@ export async function POST(
           userId: user.id,
           error: error instanceof Error ? error.message : String(error),
         });
-        controller.enqueue(
-          encoder.encode(
-            `${JSON.stringify({ type: "error", error: "Wystąpił błąd serwera." })}\n`,
-          ),
-        );
+        const event = await persistChatError({
+          error,
+          sessionId: session.id,
+          userId: user.id,
+          retryContext: retryContextForTurn,
+        });
+        controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
       } finally {
         controller.close();
       }

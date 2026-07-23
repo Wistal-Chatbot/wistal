@@ -14,6 +14,7 @@ import { log } from "@/lib/log";
 import { CHAT_MODEL, MAX_OUTPUT_TOKENS, getAnthropic } from "./anthropic";
 import type { ChatTurnEvent } from "./orchestrator";
 import { buildDataAnswerSystemPrompt } from "./system-prompt";
+import { persistChatError, type RetryContext } from "./chat-errors";
 
 function renderRow(data: Record<string, unknown>): string {
   return Object.entries(data)
@@ -52,6 +53,8 @@ export async function* streamDataAnswer(params: {
   table: string;
   sqlExecuted: string;
   source?: "chatbot" | "quick_action";
+  retryContext: RetryContext;
+  retryOfMessageId?: number | null;
 }): AsyncGenerator<ChatTurnEvent> {
   const {
     session,
@@ -61,6 +64,8 @@ export async function* streamDataAnswer(params: {
     table,
     sqlExecuted,
     source = "quick_action",
+    retryContext,
+    retryOfMessageId = null,
   } = params;
   const startedAt = Date.now();
   const anthropic = getAnthropic();
@@ -93,7 +98,13 @@ export async function* streamDataAnswer(params: {
       sessionId: session.id,
       error: error instanceof Error ? error.message : String(error),
     });
-    yield { type: "error", error: "Serwis AI jest tymczasowo niedostępny." };
+    yield await persistChatError({
+      error,
+      sessionId: session.id,
+      userId: user.id,
+      retryContext,
+      retryOfMessageId,
+    });
     return;
   }
 
@@ -121,6 +132,7 @@ export async function* streamDataAnswer(params: {
     messageType: "assistant",
     content: finalText,
     rowCount: 1,
+    retryOfMessageId,
     metadata: {
       tables: [table],
       executionMs: null,
