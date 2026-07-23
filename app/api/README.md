@@ -317,6 +317,33 @@ Edit fields and/or activate. Body = any subset of
 Delete a report. Returns `{ ok: true }`.
 - `404` not found.
 
+### Prompty systemowe — `/api/admin/prompts`
+Editable AI prompt texts, stored versioned in `chatbot.system_prompts` (newest
+version per key is live). Keys and shipped defaults are the registry in
+[`lib/ai/prompt-defaults.ts`](../../lib/ai/prompt-defaults.ts); wire shapes in
+[`lib/api/prompts-types.ts`](../../lib/api/prompts-types.ts). The chat/data paths
+read these through a 60s stale-while-revalidate cache
+([`lib/ai/prompt-store.ts`](../../lib/ai/prompt-store.ts)) that falls back to the
+compiled-in defaults if the DB is unavailable.
+
+#### `GET /api/admin/prompts`
+Every editable prompt with its live text → `{ prompts: AdminPromptDto[] }`. A key
+never edited since deploy has `version: null` and the compiled-in default as
+`content`.
+
+#### `GET /api/admin/prompts/:key`
+One prompt plus its full version history (newest first) →
+`{ prompt: AdminPromptDto, versions: PromptVersionDto[] }`.
+- `404` unknown `key` (not in the registry).
+
+#### `PUT /api/admin/prompts/:key`
+Saves `{ content }` as the next version, which becomes live (also used for
+revert — the client resends an older version's text). Invalidates the prompt
+cache on this instance → `{ prompt: AdminPromptDto }`.
+- `400` empty or >20000 chars.
+- `404` unknown `key`.
+- `409` a concurrent save took the same version — refresh and retry.
+
 ### `GET /api/admin/schema`
 Public (ERP) tables with their columns and primary key, for the quick-action
 builder → `{ tables }`.
@@ -376,6 +403,10 @@ GET    /api/admin/ai-reports
 POST   /api/admin/ai-reports/generate
 PATCH  /api/admin/ai-reports/:id
 DELETE /api/admin/ai-reports/:id
+
+GET    /api/admin/prompts
+GET    /api/admin/prompts/:key
+PUT    /api/admin/prompts/:key
 
 GET    /api/admin/schema
 GET    /api/admin/overview
