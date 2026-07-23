@@ -56,6 +56,7 @@ test("dispatches persisted error metadata separately from its copy", () => {
       type: "error",
       error: "Usługa nie odpowiedziała na czas. Spróbuj ponownie.",
       messageId: 42,
+      userMessageId: 41,
       errorCode: "CHAT_UPSTREAM_TIMEOUT",
       retryable: true,
       isRetried: false,
@@ -64,12 +65,12 @@ test("dispatches persisted error metadata separately from its copy", () => {
       ...handlers,
       onError: (error) =>
         events.push(
-          `error:${error.messageId}:${error.errorCode}:${error.retryable}`,
+          `error:${error.userMessageId}:${error.messageId}:${error.errorCode}:${error.retryable}`,
         ),
     },
   );
 
-  assert.deepEqual(events, ["error:42:CHAT_UPSTREAM_TIMEOUT:true"]);
+  assert.deepEqual(events, ["error:41:42:CHAT_UPSTREAM_TIMEOUT:true"]);
 });
 
 test("makes an unstructured HTTP 500 retryable", async () => {
@@ -96,6 +97,7 @@ test("makes an unstructured HTTP 500 retryable", async () => {
   assert.deepEqual(received, {
     message: "Wystąpił błąd. Spróbuj ponownie.",
     messageId: null,
+    userMessageId: null,
     errorCode: "CHAT_SERVER_ERROR",
     retryable: true,
     isRetried: false,

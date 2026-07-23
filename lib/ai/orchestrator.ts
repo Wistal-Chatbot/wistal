@@ -41,6 +41,7 @@ export type ChatTurnEvent =
   | {
       type: "meta";
       messageId: number;
+      userMessageId: number;
       tables: string[];
       rowCount: number | null;
       executionMs: number | null;
@@ -53,6 +54,7 @@ export type ChatTurnEvent =
       type: "error";
       error: string;
       messageId: number;
+      userMessageId: number;
       errorCode: string;
       retryable: boolean;
       isRetried: boolean;
@@ -580,6 +582,7 @@ export async function* runChatTurn(params: {
   yield {
     type: "meta",
     messageId: assistant.id,
+    userMessageId: retryContext.userMessageId,
     tables: [...tablesUsedAll],
     rowCount: lastRowCount,
     executionMs: totalExecutionMs || null,

@@ -3,10 +3,10 @@ import { z } from "zod";
 import { streamDataAnswer } from "@/lib/ai/data-answer";
 import { runChatTurn, type ChatTurnEvent } from "@/lib/ai/orchestrator";
 import type { RetryContext } from "@/lib/ai/chat-errors";
+import { checkAiRequestRateLimit } from "@/lib/ai/request-rate-limit";
 import { checkMonthlyTokenLimit } from "@/lib/ai/token-usage";
 import { parseCustomInput } from "@/lib/api/quick-actions-types";
 import { getCurrentUser } from "@/lib/auth/current-user";
-import { checkRateLimit } from "@/lib/auth/rate-limit";
 import {
   claimChatMessageRetry,
   getChatMessageForSession,
@@ -94,21 +94,7 @@ export async function POST(
     return Response.json({ error: "Nie znaleziono sesji." }, { status: 404 });
   }
 
-  const [perMinute, perDay] = await Promise.all([
-    checkRateLimit({
-      namespace: "chat-retry",
-      key: `user:${user.id}:minute`,
-      limit: 5,
-      windowSeconds: 60,
-    }),
-    checkRateLimit({
-      namespace: "chat-retry",
-      key: `user:${user.id}:day`,
-      limit: 200,
-      windowSeconds: 24 * 60 * 60,
-    }),
-  ]);
-  const limited = !perMinute.allowed ? perMinute : !perDay.allowed ? perDay : null;
+  const limited = await checkAiRequestRateLimit(user.id);
   if (limited) {
     return Response.json(
       { error: "Zbyt wiele zapytań. Spróbuj ponownie później." },

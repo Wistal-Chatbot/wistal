@@ -1,13 +1,19 @@
+import { z } from "zod";
+
 import { runChatTurn, type ChatTurnEvent } from "@/lib/ai/orchestrator";
+import { checkAiRequestRateLimit } from "@/lib/ai/request-rate-limit";
 import { checkMonthlyTokenLimit } from "@/lib/ai/token-usage";
 import { getCurrentUser } from "@/lib/auth/current-user";
-import { checkRateLimit } from "@/lib/auth/rate-limit";
 import {
-  claimLatestChatTurnRedo,
+  claimChatTurnRedo,
   getChatSessionForUser,
 } from "@/lib/db/queries";
 
 import { sessionIdSchema } from "../../../_shared";
+
+const bodySchema = z.object({
+  userMessageId: z.number().int().positive(),
+});
 
 function streamEvents(events: AsyncGenerator<ChatTurnEvent>): Response {
   const encoder = new TextEncoder();
@@ -33,7 +39,7 @@ function streamEvents(events: AsyncGenerator<ChatTurnEvent>): Response {
 }
 
 export async function POST(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ sessionId: string }> },
 ) {
   const user = await getCurrentUser();
@@ -51,21 +57,21 @@ export async function POST(
     return Response.json({ error: "Nie znaleziono sesji." }, { status: 404 });
   }
 
-  const [perMinute, perDay] = await Promise.all([
-    checkRateLimit({
-      namespace: "chat-redo",
-      key: `user:${user.id}:minute`,
-      limit: 5,
-      windowSeconds: 60,
-    }),
-    checkRateLimit({
-      namespace: "chat-redo",
-      key: `user:${user.id}:day`,
-      limit: 200,
-      windowSeconds: 24 * 60 * 60,
-    }),
-  ]);
-  const limited = !perMinute.allowed ? perMinute : !perDay.allowed ? perDay : null;
+  let json: unknown;
+  try {
+    json = await request.json();
+  } catch {
+    return Response.json({ error: "Nieprawidłowe żądanie." }, { status: 400 });
+  }
+  const parsed = bodySchema.safeParse(json);
+  if (!parsed.success) {
+    return Response.json(
+      { error: "Identyfikator wiadomości jest wymagany." },
+      { status: 400 },
+    );
+  }
+
+  const limited = await checkAiRequestRateLimit(user.id);
   if (limited) {
     return Response.json(
       { error: "Zbyt wiele zapytań. Spróbuj ponownie później." },
@@ -87,11 +93,11 @@ export async function POST(
     );
   }
 
-  const turn = await claimLatestChatTurnRedo(session.id);
+  const turn = await claimChatTurnRedo(session.id, parsed.data.userMessageId);
   if (!turn) {
     return Response.json(
-      { error: "Ostatniej wiadomości nie można ponowić." },
-      { status: 409 },
+      { error: "Nie znaleziono wiadomości do ponowienia." },
+      { status: 404 },
     );
   }
 

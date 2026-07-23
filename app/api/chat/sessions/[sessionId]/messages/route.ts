@@ -1,10 +1,14 @@
 import { z } from "zod";
 
 import { runChatTurn, type ChatTurnEvent } from "@/lib/ai/orchestrator";
-import { persistChatError } from "@/lib/ai/chat-errors";
+import {
+  persistChatError,
+  persistChatRateLimitError,
+  persistChatTokenLimitError,
+} from "@/lib/ai/chat-errors";
+import { checkAiRequestRateLimit } from "@/lib/ai/request-rate-limit";
 import { checkMonthlyTokenLimit } from "@/lib/ai/token-usage";
 import { getCurrentUser } from "@/lib/auth/current-user";
-import { checkRateLimit } from "@/lib/auth/rate-limit";
 import {
   createChatMessage,
   getChatSessionForUser,
@@ -67,56 +71,45 @@ export async function POST(
     message: preview(message),
   });
 
-  // Rate limit: 5/min and 200/day per user (architecture §6).
-  let perMinute;
-  let perDay;
+  // Persist first: rejected turns must remain consistent between UI and DB.
+  const userMessage = await createChatMessage({
+    chatSessionId: session.id,
+    userId: user.id,
+    messageType: "user",
+    content: message,
+  });
+  await setSessionTitleIfEmpty(session.id, message.slice(0, 60));
+  const retryContext = {
+    kind: "chat" as const,
+    userMessageId: userMessage.id,
+  };
+
+  let limited;
   try {
-    [perMinute, perDay] = await Promise.all([
-      checkRateLimit({
-        namespace: "chat",
-        key: `user:${user.id}:minute`,
-        limit: 5,
-        windowSeconds: 60,
-      }),
-      checkRateLimit({
-        namespace: "chat",
-        key: `user:${user.id}:day`,
-        limit: 200,
-        windowSeconds: 24 * 60 * 60,
-      }),
-    ]);
+    limited = await checkAiRequestRateLimit(user.id);
   } catch (error) {
-    const failedUserMessage = await createChatMessage({
-      chatSessionId: session.id,
-      userId: user.id,
-      messageType: "user",
-      content: message,
-    });
-    await setSessionTitleIfEmpty(session.id, message.slice(0, 60));
     const event = await persistChatError({
       error,
       sessionId: session.id,
       userId: user.id,
-      retryContext: {
-        kind: "chat",
-        userMessageId: failedUserMessage.id,
-      },
+      retryContext,
     });
     return Response.json(event, { status: 502 });
   }
-  const limited = !perMinute.allowed
-    ? perMinute
-    : !perDay.allowed
-      ? perDay
-      : null;
   if (limited) {
     log.warn("chat.messages", "rate limited", {
       sessionId: session.id,
       userId: user.id,
       retryAfterSeconds: limited.retryAfterSeconds,
     });
+    const event = await persistChatRateLimitError({
+      sessionId: session.id,
+      userId: user.id,
+      retryContext,
+      retryAfterSeconds: limited.retryAfterSeconds,
+    });
     return Response.json(
-      { error: "Zbyt wiele zapytań. Spróbuj ponownie później." },
+      event,
       {
         status: 429,
         headers: { "Retry-After": String(limited.retryAfterSeconds) },
@@ -129,21 +122,11 @@ export async function POST(
   try {
     tokenLimit = await checkMonthlyTokenLimit();
   } catch (error) {
-    const failedUserMessage = await createChatMessage({
-      chatSessionId: session.id,
-      userId: user.id,
-      messageType: "user",
-      content: message,
-    });
-    await setSessionTitleIfEmpty(session.id, message.slice(0, 60));
     const event = await persistChatError({
       error,
       sessionId: session.id,
       userId: user.id,
-      retryContext: {
-        kind: "chat",
-        userMessageId: failedUserMessage.id,
-      },
+      retryContext,
     });
     return Response.json(event, { status: 502 });
   }
@@ -152,28 +135,18 @@ export async function POST(
       sessionId: session.id,
       userId: user.id,
     });
-    return Response.json(
-      {
-        error: "Miesięczny limit tokenów AI został wyczerpany.",
-        code: tokenLimit.code,
-      },
-      { status: 429 },
-    );
+    const event = await persistChatTokenLimitError({
+      sessionId: session.id,
+      userId: user.id,
+      retryContext,
+    });
+    return Response.json(event, { status: 429 });
   }
-
-  // Persist the user message and seed the title from the first question.
-  const userMessage = await createChatMessage({
-    chatSessionId: session.id,
-    userId: user.id,
-    messageType: "user",
-    content: message,
-  });
-  await setSessionTitleIfEmpty(session.id, message.slice(0, 60));
 
   const events = runChatTurn({
     session,
     user,
-    retryContext: { kind: "chat", userMessageId: userMessage.id },
+    retryContext,
   });
 
   if (!useStream) {

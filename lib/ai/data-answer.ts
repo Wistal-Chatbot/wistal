@@ -147,6 +147,7 @@ export async function* streamDataAnswer(params: {
   yield {
     type: "meta",
     messageId: assistant.id,
+    userMessageId: retryContext.userMessageId,
     tables: [table],
     rowCount: 1,
     executionMs: null,

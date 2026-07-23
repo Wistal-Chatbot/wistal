@@ -1,12 +1,17 @@
 import { z } from "zod";
 
 import { streamDataAnswer } from "@/lib/ai/data-answer";
-import { persistChatError, type RetryContext } from "@/lib/ai/chat-errors";
+import {
+  persistChatError,
+  persistChatRateLimitError,
+  persistChatTokenLimitError,
+  type RetryContext,
+} from "@/lib/ai/chat-errors";
+import { checkAiRequestRateLimit } from "@/lib/ai/request-rate-limit";
 import { runChatTurn, type ChatTurnEvent } from "@/lib/ai/orchestrator";
 import { checkMonthlyTokenLimit } from "@/lib/ai/token-usage";
 import { parseCustomInput } from "@/lib/api/quick-actions-types";
 import { getCurrentUser } from "@/lib/auth/current-user";
-import { checkRateLimit } from "@/lib/auth/rate-limit";
 import {
   createChatMessage,
   getChatSessionForUser,
@@ -65,25 +70,10 @@ export async function POST(
     return Response.json({ error: "Nie znaleziono sesji." }, { status: 404 });
   }
 
-  // Rate limit: 5/min and 200/day per user (mirrors the chat pipeline).
   const earlyConfig = parseCustomInput(action.customInput);
-  let perMinute;
-  let perDay;
+  let limited;
   try {
-    [perMinute, perDay] = await Promise.all([
-      checkRateLimit({
-        namespace: "quick-actions",
-        key: `user:${user.id}:minute`,
-        limit: 5,
-        windowSeconds: 60,
-      }),
-      checkRateLimit({
-        namespace: "quick-actions",
-        key: `user:${user.id}:day`,
-        limit: 200,
-        windowSeconds: 24 * 60 * 60,
-      }),
-    ]);
+    limited = await checkAiRequestRateLimit(user.id);
   } catch (error) {
     const displayText = input ? `${action.namePl}: ${input}` : action.namePl;
     const failedUserMessage = await createChatMessage({
@@ -111,19 +101,37 @@ export async function POST(
     });
     return Response.json(event, { status: 502 });
   }
-  const limited = !perMinute.allowed
-    ? perMinute
-    : !perDay.allowed
-      ? perDay
-      : null;
   if (limited) {
     log.warn("quick-actions.run", "rate limited", {
       key,
       userId: user.id,
       retryAfterSeconds: limited.retryAfterSeconds,
     });
+    const displayText = input ? `${action.namePl}: ${input}` : action.namePl;
+    const failedUserMessage = await createChatMessage({
+      chatSessionId: session.id,
+      userId: user.id,
+      messageType: "user",
+      content: displayText,
+    });
+    await setSessionTitleIfEmpty(session.id, displayText.slice(0, 60));
+    const event = await persistChatRateLimitError({
+      sessionId: session.id,
+      userId: user.id,
+      retryContext: {
+        kind: "quick_action",
+        userMessageId: failedUserMessage.id,
+        key,
+        input,
+        variant:
+          "type" in earlyConfig && earlyConfig.type === "row_from_table"
+            ? "row"
+            : "prompt",
+      },
+      retryAfterSeconds: limited.retryAfterSeconds,
+    });
     return Response.json(
-      { error: "Zbyt wiele zapytań. Spróbuj ponownie później." },
+      event,
       {
         status: 429,
         headers: { "Retry-After": String(limited.retryAfterSeconds) },
@@ -167,13 +175,29 @@ export async function POST(
       key,
       userId: user.id,
     });
-    return Response.json(
-      {
-        error: "Miesięczny limit tokenów AI został wyczerpany.",
-        code: tokenLimit.code,
+    const displayText = input ? `${action.namePl}: ${input}` : action.namePl;
+    const failedUserMessage = await createChatMessage({
+      chatSessionId: session.id,
+      userId: user.id,
+      messageType: "user",
+      content: displayText,
+    });
+    await setSessionTitleIfEmpty(session.id, displayText.slice(0, 60));
+    const event = await persistChatTokenLimitError({
+      sessionId: session.id,
+      userId: user.id,
+      retryContext: {
+        kind: "quick_action",
+        userMessageId: failedUserMessage.id,
+        key,
+        input,
+        variant:
+          "type" in earlyConfig && earlyConfig.type === "row_from_table"
+            ? "row"
+            : "prompt",
       },
-      { status: 429 },
-    );
+    });
+    return Response.json(event, { status: 429 });
   }
 
   const config = earlyConfig;

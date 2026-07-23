@@ -111,6 +111,7 @@ export async function fetchQuickActionRows(
 
 export interface StreamMeta {
   messageId: number;
+  userMessageId: number;
   tables: string[];
   rowCount: number | null;
   executionMs: number | null;
@@ -134,6 +135,7 @@ export interface StreamHandlers {
 export interface StreamError {
   message: string;
   messageId: number | null;
+  userMessageId: number | null;
   errorCode: string | null;
   retryable: boolean;
   isRetried: boolean;
@@ -170,6 +172,7 @@ export function dispatchTurnStreamLine(
   } else if (event.type === "meta") {
     const meta: StreamMeta = {
       messageId: event.messageId ?? 0,
+      userMessageId: event.userMessageId ?? 0,
       tables: event.tables ?? [],
       rowCount: event.rowCount ?? null,
       executionMs: event.executionMs ?? null,
@@ -188,6 +191,8 @@ export function dispatchTurnStreamLine(
       message: event.error,
       messageId:
         typeof event.messageId === "number" ? event.messageId : null,
+      userMessageId:
+        typeof event.userMessageId === "number" ? event.userMessageId : null,
       errorCode:
         typeof event.errorCode === "string" ? event.errorCode : null,
       retryable: event.retryable === true,
@@ -205,6 +210,7 @@ export async function pumpTurnStream(
     let error: StreamError = {
       message: "Wystąpił błąd. Spróbuj ponownie.",
       messageId: null,
+      userMessageId: null,
       errorCode: serverFailure ? "CHAT_SERVER_ERROR" : null,
       retryable: serverFailure,
       isRetried: false,
@@ -213,6 +219,7 @@ export async function pumpTurnStream(
       const data = (await res.json()) as {
         error?: string;
         messageId?: number;
+        userMessageId?: number;
         errorCode?: string;
         code?: string;
         retryable?: boolean;
@@ -222,6 +229,8 @@ export async function pumpTurnStream(
         message: data.error ?? error.message,
         messageId:
           typeof data.messageId === "number" ? data.messageId : null,
+        userMessageId:
+          typeof data.userMessageId === "number" ? data.userMessageId : null,
         errorCode:
           typeof data.errorCode === "string"
             ? data.errorCode
@@ -292,6 +301,7 @@ export async function retryMessage(
 /** Regenerates the latest turn without inserting the user message again. */
 export async function redoLatestMessage(
   sessionId: string,
+  userMessageId: number,
   handlers: StreamHandlers,
 ): Promise<void> {
   const res = await fetch(
@@ -301,6 +311,7 @@ export async function redoLatestMessage(
       credentials: "same-origin",
       cache: "no-store",
       headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userMessageId }),
     },
   );
   return pumpTurnStream(res, handlers);

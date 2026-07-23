@@ -3,6 +3,7 @@ import {
   serializeAdminAiReport,
 } from "@/lib/api/ai-reports-types";
 import { generateReportConfig } from "@/lib/ai/report-generator";
+import { checkAiRequestRateLimit } from "@/lib/ai/request-rate-limit";
 import { checkMonthlyTokenLimit } from "@/lib/ai/token-usage";
 import { requireAdmin } from "@/lib/auth/require-admin";
 import { createAiReport } from "@/lib/db/queries";
@@ -28,6 +29,17 @@ export async function POST(request: Request) {
     return Response.json(
       { error: "Opis raportu jest wymagany (1–2000 znaków)." },
       { status: 400 },
+    );
+  }
+
+  const limited = await checkAiRequestRateLimit(guard.user.id);
+  if (limited) {
+    return Response.json(
+      { error: "Zbyt wiele zapytań. Spróbuj ponownie później." },
+      {
+        status: 429,
+        headers: { "Retry-After": String(limited.retryAfterSeconds) },
+      },
     );
   }
 

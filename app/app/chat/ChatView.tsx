@@ -348,9 +348,21 @@ export function ChatView({
             ),
           );
         },
-        onMeta: (source, metrics) => {
+        onMeta: (source, metrics, meta) => {
           finishWorkingStatus();
-          patchBot({ source, metrics, pending: false });
+          patchBot({
+            id: String(meta.messageId),
+            source,
+            metrics,
+            pending: false,
+          });
+          setMessages((prev) =>
+            prev.map((message) =>
+              message.id === userMsg.id
+                ? { ...message, id: String(meta.userMessageId) }
+                : message,
+            ),
+          );
           localRetryStreams.current.delete(botId);
         },
         onError: (error) => {
@@ -364,6 +376,15 @@ export function ChatView({
             retryable: error.retryable,
             isRetried: error.isRetried,
           });
+          if (error.userMessageId !== null) {
+            setMessages((prev) =>
+              prev.map((message) =>
+                message.id === userMsg.id
+                  ? { ...message, id: String(error.userMessageId) }
+                  : message,
+              ),
+            );
+          }
           if (error.messageId !== null) {
             localRetryStreams.current.delete(botId);
           }
@@ -482,6 +503,8 @@ export function ChatView({
 
     const lastUserIndex = messages.findLastIndex((message) => message.role === "user");
     if (lastUserIndex < 0) return;
+    const userMessageId = Number(messages[lastUserIndex].id);
+    if (!Number.isInteger(userMessageId) || userMessageId <= 0) return;
 
     const botId = nextId("bot");
     const pendingBot: UiMessage = {
@@ -503,7 +526,7 @@ export function ChatView({
       );
 
     try {
-      await redoLatestMessage(activeId, {
+      await redoLatestMessage(activeId, userMessageId, {
         onStatus: (workingStatus) => patchBot({ workingStatus }),
         onDelta: (delta) =>
           setMessages((prev) =>
@@ -889,7 +912,8 @@ export function ChatView({
                   <div className={styles.userBubble}>{msg.content}</div>
                   <div className={styles.userMeta}>
                     <div className={styles.userTime}>{msg.time}</div>
-                    {index === messages.findLastIndex((item) => item.role === "user") ? (
+                    {index === messages.findLastIndex((item) => item.role === "user") &&
+                    Number.isInteger(Number(msg.id)) ? (
                       <button
                         type="button"
                         className={styles.redoButton}
