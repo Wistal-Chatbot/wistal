@@ -24,6 +24,13 @@ export function classifyChatError(error: unknown): ClassifiedChatError {
   const code = (error as { code?: string } | null)?.code;
   const causeCode = (error as { cause?: { code?: string } } | null)?.cause?.code;
 
+  if (code === "CHAT_RESPONSE_INCOMPLETE") {
+    return {
+      code,
+      message: "Nie udało się dokończyć odpowiedzi. Spróbuj ponownie.",
+      detail,
+    };
+  }
   if (
     code === "UND_ERR_CONNECT_TIMEOUT" ||
     causeCode === "UND_ERR_CONNECT_TIMEOUT" ||

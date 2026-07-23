@@ -110,6 +110,10 @@ Send a user message and run an AI turn. Body `{ message: string(1–4000), strea
 (`stream` defaults to `true`). Flow: auth → rate limit (**5/min, 200/day** per user)
 → monthly AI token check → persist the user message (seeds the title from the first
 message) → run the orchestrator.
+- The orchestrator allows up to four exploration/tool rounds and reserves a fifth
+  Anthropic call for tool-disabled final synthesis. Validator and execution
+  failures share a two-error SQL budget; an empty final synthesis is persisted as
+  retryable `CHAT_RESPONSE_INCOMPLETE`, never as a generic successful answer.
 - **Streaming (default):** NDJSON stream of `ChatTurnEvent`.
 - **`stream: false`:** `{ message: { content }, meta }` (buffered), or `502 { error }`
   on turn failure.
