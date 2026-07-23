@@ -108,9 +108,9 @@ Toggle web search for the session. Body `{ enabled: boolean }`. Returns
 
 ### `POST /api/chat/sessions/:sessionId/messages`
 Send a user message and run an AI turn. Body `{ message: string(1–4000), stream?: boolean }`
-(`stream` defaults to `true`). Flow: auth → rate limit (**5/min, 200/day** per user)
-→ monthly AI token check → persist the user message (seeds the title from the first
-message) → run the orchestrator.
+(`stream` defaults to `true`). Flow: auth → persist the user message (seeds the
+title from the first message) → shared AI rate limit (**10/min, 200/day** per user)
+→ monthly AI token check → run the orchestrator.
 - The orchestrator allows up to four exploration/tool rounds and reserves a fifth
   Anthropic call for tool-disabled final synthesis. Validator and execution
   failures share a two-error SQL budget; an empty final synthesis is persisted as
@@ -118,6 +118,8 @@ message) → run the orchestrator.
 - **Streaming (default):** NDJSON stream of `ChatTurnEvent`.
 - **`stream: false`:** `{ message: { content }, meta }` (buffered), or `502 { error }`
   on turn failure.
+- Rate/token-limit rejections persist a linked assistant error, so the complete
+  rejected turn remains visible after reloading the session.
 - `400` invalid body · `404` session not found · `429` rate limited or
   `{ code: "AI_MONTHLY_TOKEN_LIMIT_EXCEEDED", error }`.
 
@@ -135,11 +137,11 @@ supported from the private retry context stored with the failure.
   retry, or stale quick-action configuration · `429` rate/token limit.
 
 ### `POST /api/chat/sessions/:sessionId/messages/redo`
-Regenerate the answer to the latest user message without inserting that user
-message again. If an assistant answer already exists, it is marked as replaced
-and the newly streamed answer takes its place in conversation history.
+Regenerate the answer to a specific persisted user message. Body
+`{ userMessageId: number }`. If its assistant answer already exists, it is marked
+as replaced and the newly streamed answer takes its place in conversation history.
 - Success streams the replacement answer as `ChatTurnEvent`.
-- `404` invalid session · `409` no latest user turn or concurrent redo · `429`
+- `400` invalid body · `404` invalid session/message · `409` concurrent redo · `429`
   rate/token limit.
 
 ---
@@ -248,8 +250,8 @@ One active report (params to build the run form) → `{ report: AiReportPublicDt
 - `401` · `404` unknown or inactive.
 
 ### `POST /api/ai-reports/:id/execute`
-Run a report. Body `{ input_params: Record<string,string> }`. Flow: rate limit (shared
-chat keys, **5/min · 200/day**) → monthly AI token check → load active report → validate
+Run a report. Body `{ input_params: Record<string,string> }`. Flow: shared AI rate
+limit (**10/min · 200/day**) → monthly AI token check → load active report → validate
 required `input_params` → agentic run (`execute_sql` + BizRaport + Google rating + web search per
 `model_config`; SQL audited `source='ai_report'`) → the model returns JSON via the
 `submit_report` tool → save `ai_report_executions` → `{ executionId, output_data,
@@ -292,13 +294,14 @@ Every report (draft or active), newest first → `{ reports: AdminAiReportDto[] 
 
 #### `POST /api/admin/ai-reports/generate`
 Generate a report config from a plain-language brief and save it as a **draft**
-(`isActive=false`). Body `{ description: string(1–2000) }`. The generation model
+(`isActive=false`). Body `{ description: string(1–2000) }`. Uses the shared AI
+rate limit (**10/min · 200/day** per admin). The generation model
 (`ANTHROPIC_CHAT_MODEL`) returns `name`, `systemPrompt`, `outputSchema`, `htmlWidget`,
 `inputParams`, `modelConfig` via a forced tool call
 ([`lib/ai/report-generator.ts`](../../lib/ai/report-generator.ts)); the generator may
 wire ERP SQL, BizRaport, Google rating, and web search into `modelConfig`. Returns
 `201 { report: AdminAiReportDto }`.
-- `400` invalid body · `429` monthly AI token limit (`{ code: "AI_MONTHLY_TOKEN_LIMIT_EXCEEDED" }`)
+- `400` invalid body · `429` request or monthly AI token limit
   · `502` generation failed.
 
 #### `PATCH /api/admin/ai-reports/:id`
