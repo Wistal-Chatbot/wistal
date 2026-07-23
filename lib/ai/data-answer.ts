@@ -79,7 +79,7 @@ export async function* streamDataAnswer(params: {
     const stream = anthropic.messages.stream({
       model: CHAT_MODEL,
       max_tokens: MAX_OUTPUT_TOKENS,
-      system: buildDataAnswerSystemPrompt(),
+      system: await buildDataAnswerSystemPrompt(),
       messages: [{ role: "user", content: userContent }],
     });
     for await (const event of stream) {

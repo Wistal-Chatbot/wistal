@@ -126,7 +126,7 @@ export async function* runChatTurn(params: {
   const userInput =
     [...history].reverse().find((m) => m.messageType === "user")?.content ?? "";
 
-  const system = buildSystemPrompt(session.webSearchEnabled);
+  const system = await buildSystemPrompt(session.webSearchEnabled);
   const tools = buildTools(session.webSearchEnabled);
 
   log.info("chat.orchestrator", "turn start", {
