@@ -33,6 +33,7 @@ the endpoints that actually exist in the code. For the intended/full backend des
 ### `ChatTurnEvent` (streamed lines)
 
 ```ts
+| { type: "status"; text: string }                // temporary Polish progress text
 | { type: "delta"; text: string }                 // incremental answer text
 | { type: "meta";                                 // one terminal metadata line
     messageId: number; tables: string[];
@@ -41,6 +42,9 @@ the endpoints that actually exist in the code. For the intended/full backend des
     tokensUsed: number | null; tokenUsage: TokenUsageMetadata | null }
 | { type: "error"; error: string }                // recoverable/terminal error
 ```
+
+`status` is ephemeral UI feedback and is never persisted as message content.
+Tool-loop narration is withheld; only the final model turn is emitted as `delta`.
 
 ---
 

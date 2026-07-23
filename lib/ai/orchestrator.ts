@@ -22,8 +22,13 @@ import { CHAT_MODEL, MAX_OUTPUT_TOKENS, getAnthropic } from "./anthropic";
 import { buildSystemPrompt } from "./system-prompt";
 import { addTokenUsage, createTokenUsageTotals } from "./token-usage-core";
 import { buildTools } from "./tools";
+import {
+  finalAnswerFromModelTurn,
+  workingStatusForTools,
+} from "./turn-presentation";
 
 export type ChatTurnEvent =
+  | { type: "status"; text: string }
   | { type: "delta"; text: string }
   | {
       type: "meta";
@@ -82,6 +87,7 @@ export async function* runChatTurn(params: {
   const turnStartedAt = Date.now();
   const { session, user, source = "chatbot" } = params;
   const anthropic = getAnthropic();
+  yield { type: "status", text: "Analizuję pytanie…" };
   const allowlist = await getPublicTableAllowlist();
 
   const history = await getRecentMessages(session.id, HISTORY_MESSAGE_LIMIT);
@@ -139,7 +145,6 @@ export async function* runChatTurn(params: {
           event.delta.type === "text_delta"
         ) {
           turnText += event.delta.text;
-          yield { type: "delta", text: event.delta.text };
         }
       }
 
@@ -160,11 +165,16 @@ export async function* runChatTurn(params: {
           sessionId: session.id,
           iteration: i,
         });
+        yield { type: "status", text: "Wyszukuję informacje w internecie…" };
         continue;
       }
 
-      if (message.stop_reason !== "tool_use") {
-        finalText = turnText.trim();
+      const completedAnswer = finalAnswerFromModelTurn(
+        message.stop_reason,
+        turnText,
+      );
+      if (completedAnswer !== null) {
+        finalText = completedAnswer;
         break;
       }
 
@@ -181,6 +191,13 @@ export async function* runChatTurn(params: {
           sessionId: session.id,
         });
         break;
+      }
+
+      const toolStatus = workingStatusForTools(
+        toolUses.map((toolUse) => toolUse.name),
+      );
+      if (toolStatus) {
+        yield { type: "status", text: toolStatus };
       }
 
       const toolResults: Anthropic.ToolResultBlockParam[] = [];
@@ -396,6 +413,7 @@ export async function* runChatTurn(params: {
       }
 
       messages.push({ role: "user", content: toolResults });
+      yield { type: "status", text: "Przygotowuję odpowiedź…" };
     }
   } catch (error) {
     log.error("chat.orchestrator", "turn failed", {
@@ -412,6 +430,8 @@ export async function* runChatTurn(params: {
   }
 
   const responseMs = Date.now() - turnStartedAt;
+
+  yield { type: "delta", text: finalText };
 
   const assistant = await createChatMessage({
     chatSessionId: session.id,

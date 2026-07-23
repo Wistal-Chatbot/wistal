@@ -70,6 +70,7 @@ export async function* streamDataAnswer(params: {
   let finalText = "";
   let tokenUsage: TokenUsageMetadata | null = null;
   try {
+    yield { type: "status", text: "Przygotowuję odpowiedź…" };
     const stream = anthropic.messages.stream({
       model: CHAT_MODEL,
       max_tokens: MAX_OUTPUT_TOKENS,
