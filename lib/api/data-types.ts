@@ -10,7 +10,7 @@
 
 import { z } from "zod";
 
-import type { ColumnType } from "@/lib/data-browser/tables-config";
+import type { ColumnType } from "@/lib/erp-schema/model";
 
 /** Comparison operators a single filter may use. */
 export const FILTER_OPERATORS = [

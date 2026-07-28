@@ -7,10 +7,10 @@ import {
   type DataQueryRequest,
   type FilterOperator,
 } from "@/lib/api/data-types";
+import { getDataTables } from "@/lib/erp-schema/store";
+import type { DataColumnConfig } from "@/lib/erp-schema/model";
 import { executeReadOnly } from "@/lib/sql/execute";
 import { getPublicSchema } from "@/lib/sql/introspection";
-
-import { getTableConfig, type DataColumnConfig } from "./tables-config";
 
 /**
  * Deterministic, read-only query builder for the manual data browser. Like
@@ -77,8 +77,13 @@ function isDateValue(value: string | number): boolean {
 export async function runDataQuery(
   input: DataQueryRequest,
 ): Promise<DataQueryResult> {
-  const cfg = getTableConfig(input.table);
-  const live = await getPublicSchema();
+  const [dataTables, live] = await Promise.all([
+    getDataTables(),
+    getPublicSchema(),
+  ]);
+  const cfg = dataTables.find(
+    (t) => t.key.toLowerCase() === input.table.toLowerCase(),
+  );
   const liveTable = cfg
     ? live.find((t) => t.table.toLowerCase() === cfg.key.toLowerCase())
     : undefined;
