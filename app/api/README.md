@@ -189,17 +189,18 @@ buffered `{ message: { content }, meta }` when `stream: false`.
 
 Manual ERP data browser. Any signed-in user (**not** admin-only). Wire shapes in
 [`lib/api/data-types.ts`](../../lib/api/data-types.ts); the exposed tables + column
-capabilities are configured in
-[`lib/data-browser/tables-config.ts`](../../lib/data-browser/tables-config.ts). No
-client SQL — the backend validates every identifier against the static config and
-the live `public` schema and builds a parametrized `SELECT` itself.
+capabilities come from the DB-backed ERP tables model
+([`lib/erp-schema/*`](../../lib/erp-schema), edited in admin → **Schemat bazy**),
+derived via `getDataTables()`. No client SQL — the backend validates every
+identifier against that config and the live `public` schema and builds a
+parametrized `SELECT` itself.
 
 ### `GET /api/data/schema`
 Table + column config for the browser UI → `{ tables: DataSchemaTable[] }`. Each
 table has `key`, `label`, `description`, `primaryKey` (single-column, from live
 introspection, or `null`), and `columns[]` of
 `{ name, label, type: "text"|"integer"|"numeric"|"date", searchable, filterable, sortable }`.
-The static config is reconciled with the live schema on each request (missing
+The config is reconciled with the live schema on each request (missing
 tables/columns are dropped). Runs no ERP query, so nothing is audited.
 - `401` when unauthenticated.
 
@@ -344,6 +345,29 @@ cache on this instance → `{ prompt: AdminPromptDto }`.
 - `404` unknown `key`.
 - `409` a concurrent save took the same version — refresh and retry.
 
+### Schemat bazy (ERP tables model) — `/api/admin/erp-tables`
+The one DB-backed source of truth for the ERP tables, stored in
+`chatbot.erp_tables` + `chatbot.erp_columns` and edited in admin → **Schemat
+bazy**. It feeds BOTH the AI schema prompt (`{{ERP_SCHEMA}}`) and the Dane
+browser, via a 60s stale-while-revalidate cache
+([`lib/erp-schema/store.ts`](../../lib/erp-schema/store.ts)) that falls back to
+`DEFAULT_ERP_MODEL` ([`lib/erp-schema/model.ts`](../../lib/erp-schema/model.ts))
+if the DB is unavailable. Wire shapes in
+[`lib/api/erp-tables-types.ts`](../../lib/api/erp-tables-types.ts). **Not
+versioned** — edits are in-place full replacements. Read-only SQL safety does not
+depend on it (the executable allowlist is derived live from `public`).
+
+#### `GET /api/admin/erp-tables`
+The current model → `{ tables: ErpTableModel[] }` (falls back to the compiled-in
+default when unseeded).
+
+#### `PUT /api/admin/erp-tables`
+Replaces the whole model (`{ tables }`, validated by `erpModelSaveSchema`) in one
+transaction, invalidates the cache, and cross-checks names against the live
+`public` schema → `{ tables, warnings }`. Unknown table/column names are
+non-blocking `warnings` (the browser drops them; the model keeps them), not errors.
+- `400` invalid model, duplicate table key, or duplicate column in a table.
+
 ### `GET /api/admin/schema`
 Public (ERP) tables with their columns and primary key, for the quick-action
 builder → `{ tables }`.
@@ -407,6 +431,9 @@ DELETE /api/admin/ai-reports/:id
 GET    /api/admin/prompts
 GET    /api/admin/prompts/:key
 PUT    /api/admin/prompts/:key
+
+GET    /api/admin/erp-tables
+PUT    /api/admin/erp-tables
 
 GET    /api/admin/schema
 GET    /api/admin/overview
