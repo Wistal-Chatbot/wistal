@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { classifyChatError } from "@/lib/ai/chat-error-classification";
 import { streamDataAnswer } from "@/lib/ai/data-answer";
 import {
   persistChatError,
@@ -269,10 +270,12 @@ export async function POST(
           controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
         }
       } catch (error) {
+        const classified = classifyChatError(error);
         log.error("quick-actions.run", "stream failed", {
           sessionId: session.id,
           userId: user.id,
-          error: error instanceof Error ? error.message : String(error),
+          errorCode: classified.code,
+          error: classified.detail,
         });
         const event = await persistChatError({
           error,

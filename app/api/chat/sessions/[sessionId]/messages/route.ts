@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { runChatTurn, type ChatTurnEvent } from "@/lib/ai/orchestrator";
+import { classifyChatError } from "@/lib/ai/chat-error-classification";
 import {
   persistChatError,
   persistChatRateLimitError,
@@ -177,10 +178,12 @@ export async function POST(
           controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
         }
       } catch (error) {
+        const classified = classifyChatError(error);
         log.error("chat.messages", "stream failed", {
           sessionId: session.id,
           userId: user.id,
-          error: error instanceof Error ? error.message : String(error),
+          errorCode: classified.code,
+          error: classified.detail,
         });
         const event = await persistChatError({
           error,

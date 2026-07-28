@@ -6,7 +6,6 @@ import {
   createChatMessage,
   getRecentMessages,
   insertQueryAudit,
-  touchChatSession,
 } from "@/lib/db/queries";
 import type { TokenUsageMetadata } from "@/lib/api/chat-types";
 import { getCompanyData, searchCompanies } from "@/lib/bizraport/client";
@@ -26,7 +25,16 @@ import {
   finalAnswerFromModelTurn,
   workingStatusForTools,
 } from "./turn-presentation";
-import { persistChatError, type RetryContext } from "./chat-errors";
+import {
+  persistChatError,
+  touchChatSessionBestEffort,
+  type ChatErrorEvent,
+  type RetryContext,
+} from "./chat-errors";
+import {
+  ChatResponsePersistenceError,
+  classifyChatError,
+} from "./chat-error-classification";
 import {
   ChatResponseIncompleteError,
   FINALIZATION_INSTRUCTION,
@@ -50,15 +58,7 @@ export type ChatTurnEvent =
       tokensUsed: number | null;
       tokenUsage: TokenUsageMetadata | null;
     }
-  | {
-      type: "error";
-      error: string;
-      messageId: number;
-      userMessageId: number;
-      errorCode: string;
-      retryable: boolean;
-      isRetried: boolean;
-    };
+  | ChatErrorEvent;
 
 const ROW_LIMIT = 500;
 /**
@@ -517,9 +517,11 @@ export async function* runChatTurn(params: {
         : "final_synthesis";
     }
   } catch (error) {
+    const classified = classifyChatError(error);
     log.error("chat.orchestrator", "turn failed", {
       sessionId: session.id,
-      error: error instanceof Error ? error.message : String(error),
+      errorCode: classified.code,
+      error: classified.detail,
       stack: error instanceof Error ? error.stack : undefined,
       explorationRounds,
       toolCallCount,
@@ -544,23 +546,45 @@ export async function* runChatTurn(params: {
     yield { type: "delta", text: finalText };
   }
 
-  const assistant = await createChatMessage({
-    chatSessionId: session.id,
-    userId: user.id,
-    messageType: "assistant",
-    content: finalText,
-    retryOfMessageId,
-    rowCount: lastRowCount,
-    metadata: {
-      tables: [...tablesUsedAll],
-      executionMs: totalExecutionMs || null,
-      responseMs,
-      queryAuditId: lastAuditId,
-      tokensUsed: tokenUsage.totalTokens || null,
-      tokenUsage: tokenUsage.totalTokens > 0 ? tokenUsage : null,
-    },
-  });
-  await touchChatSession(session.id);
+  yield { type: "status", text: "Zapisuję odpowiedź…" };
+
+  let assistant: Awaited<ReturnType<typeof createChatMessage>>;
+  try {
+    assistant = await createChatMessage({
+      chatSessionId: session.id,
+      userId: user.id,
+      messageType: "assistant",
+      content: finalText,
+      retryOfMessageId,
+      rowCount: lastRowCount,
+      metadata: {
+        tables: [...tablesUsedAll],
+        executionMs: totalExecutionMs || null,
+        responseMs,
+        queryAuditId: lastAuditId,
+        tokensUsed: tokenUsage.totalTokens || null,
+        tokenUsage: tokenUsage.totalTokens > 0 ? tokenUsage : null,
+      },
+    });
+  } catch (error) {
+    const persistenceError = new ChatResponsePersistenceError(error);
+    const classified = classifyChatError(persistenceError);
+    log.error("chat.orchestrator", "assistant persistence failed", {
+      sessionId: session.id,
+      userId: user.id,
+      errorCode: classified.code,
+      error: classified.detail,
+    });
+    yield await persistChatError({
+      error: persistenceError,
+      sessionId: session.id,
+      userId: user.id,
+      retryContext,
+      retryOfMessageId,
+    });
+    return;
+  }
+  await touchChatSessionBestEffort(session.id, "chat.orchestrator");
 
   log.info("chat.orchestrator", "turn done", {
     sessionId: session.id,

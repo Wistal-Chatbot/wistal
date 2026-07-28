@@ -1,7 +1,15 @@
 import "server-only";
 
 import { createChatMessage, touchChatSession } from "@/lib/db/queries";
+import { log } from "@/lib/log";
 import { classifyChatError } from "./chat-error-classification";
+import {
+  persistChatErrorWithFallback,
+  type ChatErrorEvent,
+  type ChatErrorPersistenceDependencies,
+} from "./chat-error-persistence-core";
+
+export type { ChatErrorEvent } from "./chat-error-persistence-core";
 
 export type RetryContext =
   | { kind: "chat"; userMessageId: number }
@@ -13,35 +21,41 @@ export type RetryContext =
       variant: "prompt" | "row";
     };
 
-export async function persistChatError(params: {
-  error: unknown;
-  sessionId: string;
-  userId: string;
-  retryContext: RetryContext;
-  retryOfMessageId?: number | null;
-}) {
-  const classified = classifyChatError(params.error);
-  const message = await createChatMessage({
-    chatSessionId: params.sessionId,
-    userId: params.userId,
-    messageType: "assistant",
-    content: classified.message,
-    errorCode: classified.code,
-    errorDetail: classified.detail,
-    retryable: true,
-    retryOfMessageId: params.retryOfMessageId ?? null,
-    metadata: { retryContext: params.retryContext },
-  });
-  await touchChatSession(params.sessionId);
-  return {
-    type: "error" as const,
-    error: classified.message,
-    messageId: message.id,
-    userMessageId: params.retryContext.userMessageId,
-    errorCode: classified.code,
-    retryable: true,
-    isRetried: false,
-  };
+const defaultPersistenceDependencies: ChatErrorPersistenceDependencies = {
+  createMessage: createChatMessage,
+  touchSession: touchChatSession,
+  logWarn: log.warn,
+  logError: log.error,
+};
+
+export async function touchChatSessionBestEffort(
+  sessionId: string,
+  scope: string,
+  touchSession: typeof touchChatSession = touchChatSession,
+): Promise<void> {
+  try {
+    await touchSession(sessionId);
+  } catch (error) {
+    const classified = classifyChatError(error);
+    log.warn(scope, "session timestamp update failed", {
+      sessionId,
+      errorCode: classified.code,
+      error: classified.detail,
+    });
+  }
+}
+
+export async function persistChatError(
+  params: {
+    error: unknown;
+    sessionId: string;
+    userId: string;
+    retryContext: RetryContext;
+    retryOfMessageId?: number | null;
+  },
+  dependencies: ChatErrorPersistenceDependencies = defaultPersistenceDependencies,
+): Promise<ChatErrorEvent> {
+  return persistChatErrorWithFallback(params, dependencies);
 }
 
 export async function persistChatRateLimitError(params: {
@@ -63,7 +77,7 @@ export async function persistChatRateLimitError(params: {
       retryAfterSeconds: params.retryAfterSeconds,
     },
   });
-  await touchChatSession(params.sessionId);
+  await touchChatSessionBestEffort(params.sessionId, "chat.errors");
   return {
     type: "error" as const,
     error: message.content,
@@ -89,7 +103,7 @@ export async function persistChatTokenLimitError(params: {
     retryable: false,
     metadata: { retryContext: params.retryContext },
   });
-  await touchChatSession(params.sessionId);
+  await touchChatSessionBestEffort(params.sessionId, "chat.errors");
   return {
     type: "error" as const,
     error: message.content,
@@ -118,7 +132,7 @@ export async function persistKnownChatError(params: {
     retryable: params.retryable,
     metadata: { retryContext: params.retryContext },
   });
-  await touchChatSession(params.sessionId);
+  await touchChatSessionBestEffort(params.sessionId, "chat.errors");
   return {
     type: "error" as const,
     error: message.content,
