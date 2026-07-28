@@ -58,9 +58,11 @@ export async function createSession(body?: {
 
 export async function fetchSession(
   sessionId: string,
+  signal?: AbortSignal,
 ): Promise<{ session: SessionDto; messages: MessageDto[] }> {
   return apiFetch<{ session: SessionDto; messages: MessageDto[] }>(
     `/api/chat/sessions/${sessionId}`,
+    { signal },
   );
 }
 
