@@ -141,6 +141,8 @@ export interface StreamError {
   isRetried: boolean;
 }
 
+type TurnStreamFrameType = "status" | "delta" | "meta" | "error" | null;
+
 /**
  * Consumes an NDJSON turn stream (from the chat or quick-action endpoint),
  * dispatching `status` / `delta` / `meta` / `error` frames to the handlers.
@@ -149,30 +151,47 @@ export interface StreamError {
 export function dispatchTurnStreamLine(
   line: string,
   handlers: StreamHandlers,
-): void {
+): TurnStreamFrameType {
   const trimmed = line.trim();
-  if (!trimmed) return;
+  if (!trimmed) return null;
   let event: {
     type?: string;
     text?: string;
     error?: string;
+    messageId?: number | null;
+    userMessageId?: number | null;
     errorCode?: string;
     retryable?: boolean;
     isRetried?: boolean;
-  } & Partial<StreamMeta>;
+    tables?: string[];
+    rowCount?: number | null;
+    executionMs?: number | null;
+    responseMs?: number | null;
+    queryAuditId?: number | null;
+    tokensUsed?: number | null;
+    tokenUsage?: TokenUsageMetadata | null;
+  };
   try {
     event = JSON.parse(trimmed);
   } catch {
-    return;
+    return null;
   }
   if (event.type === "status" && typeof event.text === "string") {
     handlers.onStatus(event.text);
+    return "status";
   } else if (event.type === "delta" && typeof event.text === "string") {
     handlers.onDelta(event.text);
-  } else if (event.type === "meta") {
+    return "delta";
+  } else if (
+    event.type === "meta" &&
+    typeof event.messageId === "number" &&
+    event.messageId > 0 &&
+    typeof event.userMessageId === "number" &&
+    event.userMessageId > 0
+  ) {
     const meta: StreamMeta = {
-      messageId: event.messageId ?? 0,
-      userMessageId: event.userMessageId ?? 0,
+      messageId: event.messageId,
+      userMessageId: event.userMessageId,
       tables: event.tables ?? [],
       rowCount: event.rowCount ?? null,
       executionMs: event.executionMs ?? null,
@@ -186,6 +205,7 @@ export function dispatchTurnStreamLine(
       toMetrics(meta.responseMs, meta.tokensUsed),
       meta,
     );
+    return "meta";
   } else if (event.type === "error" && typeof event.error === "string") {
     handlers.onError({
       message: event.error,
@@ -198,7 +218,9 @@ export function dispatchTurnStreamLine(
       retryable: event.retryable === true,
       isRetried: event.isRetried === true,
     });
+    return "error";
   }
+  return null;
 }
 
 export async function pumpTurnStream(
@@ -206,7 +228,7 @@ export async function pumpTurnStream(
   handlers: StreamHandlers,
 ): Promise<void> {
   if (!res.ok || !res.body) {
-    const serverFailure = res.status >= 500;
+    const serverFailure = res.status >= 500 || (res.ok && !res.body);
     let error: StreamError = {
       message: "Wystąpił błąd. Spróbuj ponownie.",
       messageId: null,
@@ -250,6 +272,26 @@ export async function pumpTurnStream(
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+  let terminalReceived = false;
+  const terminalHandlers: StreamHandlers = {
+    ...handlers,
+    onMeta: (source, metrics, meta) => {
+      terminalReceived = true;
+      handlers.onMeta(source, metrics, meta);
+    },
+    onError: (error) => {
+      terminalReceived = true;
+      handlers.onError(error);
+    },
+  };
+
+  const cancelAfterTerminal = async () => {
+    try {
+      await reader.cancel();
+    } catch {
+      // The terminal event was already handled; transport cleanup is best effort.
+    }
+  };
 
   while (true) {
     const { done, value } = await reader.read();
@@ -257,12 +299,29 @@ export async function pumpTurnStream(
     buffer += decoder.decode(value, { stream: true });
     let nl: number;
     while ((nl = buffer.indexOf("\n")) >= 0) {
-      dispatchTurnStreamLine(buffer.slice(0, nl), handlers);
+      dispatchTurnStreamLine(buffer.slice(0, nl), terminalHandlers);
       buffer = buffer.slice(nl + 1);
+      if (terminalReceived) {
+        await cancelAfterTerminal();
+        return;
+      }
     }
   }
   buffer += decoder.decode();
-  if (buffer.trim()) dispatchTurnStreamLine(buffer, handlers);
+  if (buffer.trim()) {
+    dispatchTurnStreamLine(buffer, terminalHandlers);
+  }
+  if (terminalReceived) return;
+
+  handlers.onError({
+    message:
+      "Połączenie zakończyło się przed zapisaniem odpowiedzi. Spróbuj ponownie.",
+    messageId: null,
+    userMessageId: null,
+    errorCode: "CHAT_STREAM_INCOMPLETE",
+    retryable: true,
+    isRetried: false,
+  });
 }
 
 /** Sends a chat message and streams the orchestrator's answer. */

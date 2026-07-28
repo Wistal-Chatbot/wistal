@@ -103,3 +103,79 @@ test("makes an unstructured HTTP 500 retryable", async () => {
     isRetried: false,
   });
 });
+
+test("reports a retryable error when the stream closes without a terminal frame", async () => {
+  const events: string[] = [];
+  let receivedError:
+    | {
+        message: string;
+        errorCode: string | null;
+        retryable: boolean;
+      }
+    | undefined;
+  const handlers = recordingHandlers(events);
+  handlers.onError = (error) => {
+    receivedError = {
+      message: error.message,
+      errorCode: error.errorCode,
+      retryable: error.retryable,
+    };
+  };
+
+  await pumpTurnStream(
+    new Response(
+      `${JSON.stringify({ type: "delta", text: "Gotowa odpowiedź." })}\n`,
+      {
+        status: 200,
+        headers: { "Content-Type": "application/x-ndjson" },
+      },
+    ),
+    handlers,
+  );
+
+  assert.deepEqual(events, ["delta:Gotowa odpowiedź."]);
+  assert.deepEqual(receivedError, {
+    message:
+      "Połączenie zakończyło się przed zapisaniem odpowiedzi. Spróbuj ponownie.",
+    errorCode: "CHAT_STREAM_INCOMPLETE",
+    retryable: true,
+  });
+});
+
+test("finishes as soon as persisted metadata arrives", async () => {
+  const events: string[] = [];
+  const encoder = new TextEncoder();
+  let cancelled = false;
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(
+        encoder.encode(
+          [
+            JSON.stringify({ type: "delta", text: "Gotowa odpowiedź." }),
+            JSON.stringify({
+              type: "meta",
+              messageId: 42,
+              userMessageId: 41,
+              tables: [],
+            }),
+            "",
+          ].join("\n"),
+        ),
+      );
+    },
+    cancel() {
+      cancelled = true;
+    },
+  });
+
+  await pumpTurnStream(
+    new Response(body, {
+      status: 200,
+      headers: { "Content-Type": "application/x-ndjson" },
+    }),
+    recordingHandlers(events),
+  );
+
+  assert.deepEqual(events, ["delta:Gotowa odpowiedź.", "meta:42"]);
+  assert.equal(cancelled, true);
+});
