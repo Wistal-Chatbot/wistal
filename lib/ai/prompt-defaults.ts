@@ -13,7 +13,7 @@
  * import `PROMPT_KEYS` / metadata without pulling the server bundle in.
  */
 
-/** Placeholder expanded to `ERP_SCHEMA_DESCRIPTION` when the prompt is built. */
+/** Placeholder expanded to the rendered ERP schema text when the prompt is built. */
 export const ERP_SCHEMA_PLACEHOLDER = "{{ERP_SCHEMA}}";
 
 export const PROMPT_KEYS = [
@@ -32,9 +32,10 @@ export function isPromptKey(value: string): value is PromptKey {
 
 /**
  * The main chat orchestrator prompt: safety rules plus the ERP schema, which is
- * injected via `{{ERP_SCHEMA}}` rather than stored inline — the schema is
- * code-owned (`erp-schema.ts`) and should track the real tables, not a copy
- * frozen into the DB at seed time.
+ * injected via `{{ERP_SCHEMA}}` rather than stored inline. The schema is rendered
+ * from the editable ERP tables model (`lib/erp-schema/*`) at build time, so an
+ * admin edit here can move the placeholder around but the schema itself is owned
+ * by that model, not frozen into this prompt.
  */
 const CHAT_SYSTEM_DEFAULT = `Jesteś asystentem ERP firmy Wistal (handel wyrobami hutniczymi/stalowymi).
 Pracownicy zadają Ci pytania w języku naturalnym (zwykle po polsku, czasem po angielsku),

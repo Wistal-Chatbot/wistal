@@ -7,11 +7,11 @@ import {
   type ReportConfigDraft,
 } from "@/lib/api/ai-reports-types";
 import { isBizraportConfigured } from "@/lib/bizraport/client";
+import { getErpSchemaText } from "@/lib/erp-schema/store";
 import { isGooglePlacesConfigured } from "@/lib/google-places/client";
 import { log } from "@/lib/log";
 
 import { CHAT_MODEL, getAnthropic } from "./anthropic";
-import { ERP_SCHEMA_DESCRIPTION } from "./erp-schema";
 
 /**
  * The whole config (system_prompt + an HTML widget) is emitted in one tool call,
@@ -70,7 +70,9 @@ const saveReportConfigTool: Anthropic.Tool = {
   },
 };
 
-function buildSystemPrompt(): string {
+async function buildSystemPrompt(): Promise<string> {
+  const erpSchema = await getErpSchemaText();
+
   const bizraportCapability = isBizraportConfigured()
     ? `- **BizRaport** (dane zewnętrzne o polskich firmach): narzędzia \`get_company_info\` (po NIP/KRS) i \`search_company\` (po nazwie) — dane rejestrowe KRS, finansowe, powiązania, KRZ, Monitor Sądowy. W \`model_config\` ustaw \`uses_company_lookup: true\`, gdy raport ma z nich korzystać. Dla klienta z ERP NIP ustala się zapytaniem do \`kontrahenci\`.\n`
     : "";
@@ -82,7 +84,7 @@ function buildSystemPrompt(): string {
   return `Jesteś generatorem konfiguracji Raportów AI dla wewnętrznego systemu ERP firmy Wistal (handel wyrobami hutniczymi/stalowymi).
 Administrator opisze słownie, co raport ma robić. Twoim zadaniem jest wygenerować KOMPLETNĄ konfigurację raportu i zwrócić ją WYŁĄCZNIE przez wywołanie narzędzia \`save_report_config\`.
 
-${ERP_SCHEMA_DESCRIPTION}
+${erpSchema}
 
 # Dostępne źródła danych, z których raport może korzystać
 - **ERP (SQL)**: zapytania \`SELECT\` (tylko do odczytu) po tabelach ERP wymienionych wyżej. W \`model_config.tables\` wypisz tabele, których raport realnie używa.
@@ -121,7 +123,7 @@ export async function generateReportConfig(
   const response = await getAnthropic().messages.create({
     model: CHAT_MODEL,
     max_tokens: REPORT_GEN_MAX_TOKENS,
-    system: buildSystemPrompt(),
+    system: await buildSystemPrompt(),
     messages: [{ role: "user", content: description }],
     tools: [saveReportConfigTool],
     tool_choice: { type: "tool", name: "save_report_config" },

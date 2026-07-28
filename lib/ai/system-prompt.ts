@@ -3,9 +3,9 @@ import "server-only";
 import type Anthropic from "@anthropic-ai/sdk";
 
 import { isBizraportConfigured } from "@/lib/bizraport/client";
+import { getErpSchemaText } from "@/lib/erp-schema/store";
 import { isGooglePlacesConfigured } from "@/lib/google-places/client";
 
-import { ERP_SCHEMA_DESCRIPTION } from "./erp-schema";
 import { expandSchemaPlaceholder } from "./prompt-cache-core";
 import { getPrompts } from "./prompt-store";
 
@@ -23,7 +23,10 @@ import { getPrompts } from "./prompt-store";
 export async function buildSystemPrompt(
   webSearchEnabled: boolean,
 ): Promise<Anthropic.TextBlockParam[]> {
-  const prompts = await getPrompts();
+  const [prompts, erpSchema] = await Promise.all([
+    getPrompts(),
+    getErpSchemaText(),
+  ]);
 
   // Static (config-level, not per-session) blocks first: the ERP prompt plus the
   // BizRaport/Google instructions when those integrations are configured. Tools
@@ -34,10 +37,7 @@ export async function buildSystemPrompt(
   const blocks: Anthropic.TextBlockParam[] = [
     {
       type: "text",
-      text: expandSchemaPlaceholder(
-        prompts.chat_system,
-        ERP_SCHEMA_DESCRIPTION,
-      ),
+      text: expandSchemaPlaceholder(prompts.chat_system, erpSchema),
     },
   ];
   if (isBizraportConfigured()) {
