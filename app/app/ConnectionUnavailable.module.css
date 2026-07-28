@@ -1,0 +1,71 @@
+.page {
+  align-items: center;
+  background: var(--page-bg);
+  display: flex;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 24px;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 12px 30px rgba(29, 39, 51, 0.08);
+  max-width: 460px;
+  padding: 40px;
+  text-align: center;
+  width: 100%;
+}
+
+.status {
+  align-items: center;
+  background: #f7ece9;
+  border-radius: 50%;
+  color: var(--accent-red);
+  display: inline-flex;
+  font-family: var(--font-ibm-plex-mono), monospace;
+  font-size: 24px;
+  font-weight: 600;
+  height: 52px;
+  justify-content: center;
+  margin-bottom: 20px;
+  width: 52px;
+}
+
+.eyebrow {
+  color: var(--accent-red);
+  font-family: var(--font-ibm-plex-mono), monospace;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 1.4px;
+  margin: 0 0 8px;
+}
+
+.card h1 {
+  color: var(--text-primary);
+  font-size: 22px;
+  margin: 0;
+}
+
+.description {
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1.6;
+  margin: 14px auto 24px;
+  max-width: 340px;
+}
+
+.retryButton {
+  background: var(--primary);
+  border-radius: 9px;
+  color: #fff;
+  display: inline-flex;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 11px 20px;
+}
+
+.retryButton:hover {
+  background: var(--primary-hover);
+}

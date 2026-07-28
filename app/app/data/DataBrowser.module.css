@@ -153,6 +153,18 @@
   flex: 1;
 }
 
+.selectedCount {
+  color: var(--text-muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.selectedCount strong {
+  color: var(--text-primary);
+  font-family: var(--font-ibm-plex-mono), monospace;
+  font-weight: 600;
+}
+
 .exportButton {
   align-items: center;
   background: var(--surface);
@@ -247,6 +259,13 @@
   text-align: right;
 }
 
+.selectionTh {
+  padding-left: 14px;
+  padding-right: 8px;
+  text-align: center;
+  width: 42px;
+}
+
 .sortButton {
   align-items: center;
   background: transparent;
@@ -282,6 +301,30 @@
   background: #f4f7fb;
 }
 
+.rowSelected,
+.rowSelected:hover {
+  background: #eef1fb;
+}
+
+.selectionCell {
+  padding: 13px 8px 13px 14px;
+  text-align: center;
+  width: 42px;
+}
+
+.rowCheckbox {
+  accent-color: var(--primary);
+  cursor: pointer;
+  display: block;
+  height: 16px;
+  margin: 0 auto;
+  width: 16px;
+}
+
+.rowCheckbox:disabled {
+  cursor: not-allowed;
+}
+
 .td,
 .tdMono {
   color: var(--text-primary);
@@ -301,6 +344,46 @@
 
 .tdRight {
   text-align: right;
+}
+
+.skeletonCell {
+  border-bottom: 1px solid #f0f2f5;
+  padding: 15px 16px;
+}
+
+.skeletonBar,
+.skeletonBarShort,
+.skeletonHeaderBar {
+  background:
+    linear-gradient(
+      100deg,
+      transparent 30%,
+      rgba(255, 255, 255, 0.84) 50%,
+      transparent 70%
+    ),
+    #e6eaf0;
+  background-size: 220% 100%;
+  border-radius: 5px;
+  display: block;
+  animation: dataSkeletonShimmer 1.8s ease-in-out infinite;
+}
+
+.skeletonBar,
+.skeletonBarShort {
+  height: 13px;
+}
+
+.skeletonBar {
+  width: 78%;
+}
+
+.skeletonBarShort {
+  width: 48%;
+}
+
+.skeletonHeaderBar {
+  height: 10px;
+  width: 72px;
 }
 
 .tdBadge {
@@ -506,8 +589,44 @@
   width: 100%;
 }
 
-.askButton:hover {
+.askButton:hover:not(:disabled) {
   background: var(--primary-hover);
+}
+
+.askButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+.srOnly {
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  padding: 0;
+  position: absolute;
+  width: 1px;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
+@keyframes dataSkeletonShimmer {
+  0%,
+  20% {
+    background-position: 120% 0;
+  }
+
+  80%,
+  100% {
+    background-position: -120% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeletonBar,
+  .skeletonBarShort,
+  .skeletonHeaderBar {
+    animation: none;
+  }
 }
 
 @media (max-width: 820px) {

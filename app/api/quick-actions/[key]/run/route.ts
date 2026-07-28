@@ -1,11 +1,19 @@
 import { z } from "zod";
 
+import { classifyChatError } from "@/lib/ai/chat-error-classification";
 import { streamDataAnswer } from "@/lib/ai/data-answer";
+import {
+  persistChatError,
+  persistChatRateLimitError,
+  persistChatTokenLimitError,
+  persistKnownChatError,
+  type RetryContext,
+} from "@/lib/ai/chat-errors";
+import { checkAiRequestRateLimit } from "@/lib/ai/request-rate-limit";
 import { runChatTurn, type ChatTurnEvent } from "@/lib/ai/orchestrator";
 import { checkMonthlyTokenLimit } from "@/lib/ai/token-usage";
 import { parseCustomInput } from "@/lib/api/quick-actions-types";
 import { getCurrentUser } from "@/lib/auth/current-user";
-import { checkRateLimit } from "@/lib/auth/rate-limit";
 import {
   createChatMessage,
   getChatSessionForUser,
@@ -64,34 +72,71 @@ export async function POST(
     return Response.json({ error: "Nie znaleziono sesji." }, { status: 404 });
   }
 
-  // Rate limit: 5/min and 200/day per user (mirrors the chat pipeline).
-  const [perMinute, perDay] = await Promise.all([
-    checkRateLimit({
-      namespace: "quick-actions",
-      key: `user:${user.id}:minute`,
-      limit: 5,
-      windowSeconds: 60,
-    }),
-    checkRateLimit({
-      namespace: "quick-actions",
-      key: `user:${user.id}:day`,
-      limit: 200,
-      windowSeconds: 24 * 60 * 60,
-    }),
-  ]);
-  const limited = !perMinute.allowed
-    ? perMinute
-    : !perDay.allowed
-      ? perDay
-      : null;
+  const config = parseCustomInput(action.customInput);
+  const webSearchEnabled = session.webSearchEnabled || action.usesWebSearch;
+  const isRowAction = "type" in config && config.type === "row_from_table";
+
+  let userMessageText: string;
+  let normalizedInput = input;
+  if (isRowAction) {
+    normalizedInput = (input ?? "").trim();
+    if (!normalizedInput) {
+      return Response.json(
+        { error: `Wybierz wartość dla pola „${config.label}”.` },
+        { status: 400 },
+      );
+    }
+    userMessageText = `${action.namePl}: ${normalizedInput}`;
+  } else {
+    const resolved = validateAndResolvePrompt(action, input);
+    if (!resolved.ok) {
+      return Response.json({ error: resolved.error }, { status: 400 });
+    }
+    userMessageText = resolved.prompt;
+  }
+
+  // Persist exactly once before any infrastructure or external API call.
+  const userMessage = await createChatMessage({
+    chatSessionId: session.id,
+    userId: user.id,
+    messageType: "user",
+    content: userMessageText,
+  });
+  await setSessionTitleIfEmpty(session.id, userMessageText.slice(0, 60));
+  const retryContextForTurn: RetryContext = {
+    kind: "quick_action",
+    userMessageId: userMessage.id,
+    key,
+    input: normalizedInput,
+    variant: isRowAction ? "row" : "prompt",
+  };
+
+  let limited;
+  try {
+    limited = await checkAiRequestRateLimit(user.id);
+  } catch (error) {
+    const event = await persistChatError({
+      error,
+      sessionId: session.id,
+      userId: user.id,
+      retryContext: retryContextForTurn,
+    });
+    return Response.json(event, { status: 502 });
+  }
   if (limited) {
     log.warn("quick-actions.run", "rate limited", {
       key,
       userId: user.id,
       retryAfterSeconds: limited.retryAfterSeconds,
     });
+    const event = await persistChatRateLimitError({
+      sessionId: session.id,
+      userId: user.id,
+      retryContext: retryContextForTurn,
+      retryAfterSeconds: limited.retryAfterSeconds,
+    });
     return Response.json(
-      { error: "Zbyt wiele zapytań. Spróbuj ponownie później." },
+      event,
       {
         status: 429,
         headers: { "Retry-After": String(limited.retryAfterSeconds) },
@@ -100,36 +145,37 @@ export async function POST(
   }
 
   // Monthly AI token limit (blocks only when live usage is available and over).
-  const tokenLimit = await checkMonthlyTokenLimit();
+  let tokenLimit;
+  try {
+    tokenLimit = await checkMonthlyTokenLimit();
+  } catch (error) {
+    const event = await persistChatError({
+      error,
+      sessionId: session.id,
+      userId: user.id,
+      retryContext: retryContextForTurn,
+    });
+    return Response.json(event, { status: 502 });
+  }
   if (!tokenLimit.allowed) {
     log.warn("quick-actions.run", "monthly token limit exceeded", {
       key,
       userId: user.id,
     });
-    return Response.json(
-      {
-        error: "Miesięczny limit tokenów AI został wyczerpany.",
-        code: tokenLimit.code,
-      },
-      { status: 429 },
-    );
+    const event = await persistChatTokenLimitError({
+      sessionId: session.id,
+      userId: user.id,
+      retryContext: retryContextForTurn,
+    });
+    return Response.json(event, { status: 429 });
   }
-
-  const config = parseCustomInput(action.customInput);
-  const webSearchEnabled = session.webSearchEnabled || action.usesWebSearch;
 
   let events: AsyncGenerator<ChatTurnEvent>;
 
-  if ("type" in config && config.type === "row_from_table") {
+  if (isRowAction) {
     // Deterministic path: fetch the chosen row, then the AI only composes the
     // answer from it — no AI-generated SQL.
-    const chosenId = (input ?? "").trim();
-    if (!chosenId) {
-      return Response.json(
-        { error: `Wybierz wartość dla pola „${config.label}”.` },
-        { status: 400 },
-      );
-    }
+    const chosenId = normalizedInput as string;
 
     let fetched: { row: Record<string, unknown> | null; sql: string };
     try {
@@ -140,19 +186,26 @@ export async function POST(
         userId: user.id,
         error: error instanceof Error ? error.message : String(error),
       });
-      return Response.json(
-        { error: "Nie udało się pobrać danych akcji." },
-        { status: 502 },
-      );
+      const event = await persistChatError({
+        error,
+        sessionId: session.id,
+        userId: user.id,
+        retryContext: retryContextForTurn,
+      });
+      return Response.json(event, { status: 502 });
     }
     if (!fetched.row) {
-      return Response.json(
-        { error: "Wybrana wartość jest nieprawidłowa." },
-        { status: 400 },
-      );
+      const event = await persistKnownChatError({
+        sessionId: session.id,
+        userId: user.id,
+        retryContext: retryContextForTurn,
+        message: "Wybrana wartość jest nieprawidłowa.",
+        code: "QUICK_ACTION_INPUT_INVALID",
+        retryable: false,
+      });
+      return Response.json(event, { status: 400 });
     }
 
-    const userMessage = `${action.namePl}: ${chosenId}`;
     log.info("quick-actions.run", "request (row_from_table)", {
       sessionId: session.id,
       userId: user.id,
@@ -160,14 +213,6 @@ export async function POST(
       table: config.table,
       stream: useStream,
     });
-    await createChatMessage({
-      chatSessionId: session.id,
-      userId: user.id,
-      messageType: "user",
-      content: userMessage,
-    });
-    await setSessionTitleIfEmpty(session.id, userMessage.slice(0, 60));
-
     events = streamDataAnswer({
       session,
       user,
@@ -176,57 +221,43 @@ export async function POST(
       table: config.table,
       sqlExecuted: fetched.sql,
       source: "quick_action",
+      retryContext: retryContextForTurn,
     });
   } else {
     // text / no-input path: the AI generates the SQL (runChatTurn).
-    const resolved = validateAndResolvePrompt(action, input);
-    if (!resolved.ok) {
-      return Response.json({ error: resolved.error }, { status: 400 });
-    }
-    const promptText = resolved.prompt;
-
     log.info("quick-actions.run", "request", {
       sessionId: session.id,
       userId: user.id,
       key,
       webSearchEnabled,
       stream: useStream,
-      prompt: preview(promptText),
+      prompt: preview(userMessageText),
     });
-
-    // Persist the resolved prompt as the user turn; runChatTurn reads the
-    // session's messages, so it picks this up as the current turn.
-    await createChatMessage({
-      chatSessionId: session.id,
-      userId: user.id,
-      messageType: "user",
-      content: promptText,
-    });
-    await setSessionTitleIfEmpty(session.id, promptText.slice(0, 60));
 
     events = runChatTurn({
       session: { ...session, webSearchEnabled },
       user,
       source: "quick_action",
+      retryContext: retryContextForTurn,
     });
   }
 
   if (!useStream) {
     let text = "";
     let meta: Extract<ChatTurnEvent, { type: "meta" }> | null = null;
-    let error: string | null = null;
+    let error: Extract<ChatTurnEvent, { type: "error" }> | null = null;
     for await (const event of events) {
       if (event.type === "delta") text += event.text;
       else if (event.type === "meta") meta = event;
-      else if (event.type === "error") error = event.error;
+      else if (event.type === "error") error = event;
     }
     if (error) {
       log.error("quick-actions.run", "turn error (non-stream)", {
         sessionId: session.id,
         userId: user.id,
-        error,
+        error: error.error,
       });
-      return Response.json({ error }, { status: 502 });
+      return Response.json(error, { status: 502 });
     }
     return Response.json({ message: { content: text }, meta });
   }
@@ -239,16 +270,20 @@ export async function POST(
           controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
         }
       } catch (error) {
+        const classified = classifyChatError(error);
         log.error("quick-actions.run", "stream failed", {
           sessionId: session.id,
           userId: user.id,
-          error: error instanceof Error ? error.message : String(error),
+          errorCode: classified.code,
+          error: classified.detail,
         });
-        controller.enqueue(
-          encoder.encode(
-            `${JSON.stringify({ type: "error", error: "Wystąpił błąd serwera." })}\n`,
-          ),
-        );
+        const event = await persistChatError({
+          error,
+          sessionId: session.id,
+          userId: user.id,
+          retryContext: retryContextForTurn,
+        });
+        controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
       } finally {
         controller.close();
       }

@@ -22,6 +22,34 @@
       "when": 1783415027510,
       "tag": "0002_yellow_sleeper",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1784806353862,
+      "tag": "0003_left_proudstar",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1784806564398,
+      "tag": "0004_mute_valkyrie",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1784828209829,
+      "tag": "0005_system_prompts",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1785255026172,
+      "tag": "0006_erp_tables",
+      "breakpoints": true
     }
   ]
 }

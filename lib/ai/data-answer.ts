@@ -3,15 +3,20 @@ import "server-only";
 import type Anthropic from "@anthropic-ai/sdk";
 
 import type { TokenUsageMetadata } from "@/lib/api/chat-types";
-import {
-  createChatMessage,
-  insertQueryAudit,
-  touchChatSession,
-} from "@/lib/db/queries";
+import { createChatMessage, insertQueryAudit } from "@/lib/db/queries";
 import type { AppUser, ChatSession } from "@/lib/db/schema";
 import { log } from "@/lib/log";
 
 import { CHAT_MODEL, MAX_OUTPUT_TOKENS, getAnthropic } from "./anthropic";
+import {
+  ChatResponsePersistenceError,
+  classifyChatError,
+} from "./chat-error-classification";
+import {
+  persistChatError,
+  touchChatSessionBestEffort,
+  type RetryContext,
+} from "./chat-errors";
 import type { ChatTurnEvent } from "./orchestrator";
 import { buildDataAnswerSystemPrompt } from "./system-prompt";
 
@@ -52,6 +57,8 @@ export async function* streamDataAnswer(params: {
   table: string;
   sqlExecuted: string;
   source?: "chatbot" | "quick_action";
+  retryContext: RetryContext;
+  retryOfMessageId?: number | null;
 }): AsyncGenerator<ChatTurnEvent> {
   const {
     session,
@@ -61,6 +68,8 @@ export async function* streamDataAnswer(params: {
     table,
     sqlExecuted,
     source = "quick_action",
+    retryContext,
+    retryOfMessageId = null,
   } = params;
   const startedAt = Date.now();
   const anthropic = getAnthropic();
@@ -70,10 +79,11 @@ export async function* streamDataAnswer(params: {
   let finalText = "";
   let tokenUsage: TokenUsageMetadata | null = null;
   try {
+    yield { type: "status", text: "Przygotowuję odpowiedź…" };
     const stream = anthropic.messages.stream({
       model: CHAT_MODEL,
       max_tokens: MAX_OUTPUT_TOKENS,
-      system: buildDataAnswerSystemPrompt(),
+      system: await buildDataAnswerSystemPrompt(),
       messages: [{ role: "user", content: userContent }],
     });
     for await (const event of stream) {
@@ -88,11 +98,19 @@ export async function* streamDataAnswer(params: {
     const message = await stream.finalMessage();
     tokenUsage = usageToMetadata(message.usage);
   } catch (error) {
+    const classified = classifyChatError(error);
     log.error("quick-actions.data-answer", "turn failed", {
       sessionId: session.id,
-      error: error instanceof Error ? error.message : String(error),
+      errorCode: classified.code,
+      error: classified.detail,
     });
-    yield { type: "error", error: "Serwis AI jest tymczasowo niedostępny." };
+    yield await persistChatError({
+      error,
+      sessionId: session.id,
+      userId: user.id,
+      retryContext,
+      retryOfMessageId,
+    });
     return;
   }
 
@@ -102,38 +120,63 @@ export async function* streamDataAnswer(params: {
 
   const responseMs = Date.now() - startedAt;
 
-  const auditId = await insertQueryAudit({
-    chatSessionId: session.id,
-    userId: user.id,
-    source,
-    userInput: promptTemplate,
-    sqlExecuted,
-    sqlValid: true,
-    tablesUsed: [table],
-    rowCount: 1,
-    llmModel: CHAT_MODEL,
-  });
+  yield { type: "status", text: "Zapisuję odpowiedź…" };
 
-  const assistant = await createChatMessage({
-    chatSessionId: session.id,
-    userId: user.id,
-    messageType: "assistant",
-    content: finalText,
-    rowCount: 1,
-    metadata: {
-      tables: [table],
-      executionMs: null,
-      responseMs,
-      queryAuditId: auditId,
-      tokensUsed: tokenUsage?.totalTokens ?? null,
-      tokenUsage: tokenUsage && tokenUsage.totalTokens > 0 ? tokenUsage : null,
-    },
-  });
-  await touchChatSession(session.id);
+  let auditId: number;
+  let assistant: Awaited<ReturnType<typeof createChatMessage>>;
+  try {
+    auditId = await insertQueryAudit({
+      chatSessionId: session.id,
+      userId: user.id,
+      source,
+      userInput: promptTemplate,
+      sqlExecuted,
+      sqlValid: true,
+      tablesUsed: [table],
+      rowCount: 1,
+      llmModel: CHAT_MODEL,
+    });
+
+    assistant = await createChatMessage({
+      chatSessionId: session.id,
+      userId: user.id,
+      messageType: "assistant",
+      content: finalText,
+      rowCount: 1,
+      retryOfMessageId,
+      metadata: {
+        tables: [table],
+        executionMs: null,
+        responseMs,
+        queryAuditId: auditId,
+        tokensUsed: tokenUsage?.totalTokens ?? null,
+        tokenUsage: tokenUsage && tokenUsage.totalTokens > 0 ? tokenUsage : null,
+      },
+    });
+  } catch (error) {
+    const persistenceError = new ChatResponsePersistenceError(error);
+    const classified = classifyChatError(persistenceError);
+    log.error("quick-actions.data-answer", "assistant persistence failed", {
+      sessionId: session.id,
+      userId: user.id,
+      errorCode: classified.code,
+      error: classified.detail,
+    });
+    yield await persistChatError({
+      error: persistenceError,
+      sessionId: session.id,
+      userId: user.id,
+      retryContext,
+      retryOfMessageId,
+    });
+    return;
+  }
+  await touchChatSessionBestEffort(session.id, "quick-actions.data-answer");
 
   yield {
     type: "meta",
     messageId: assistant.id,
+    userMessageId: retryContext.userMessageId,
     tables: [table],
     rowCount: 1,
     executionMs: null,

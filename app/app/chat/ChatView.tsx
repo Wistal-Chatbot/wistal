@@ -1,6 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -16,10 +22,13 @@ import {
   EditIcon,
   MenuIcon,
   PlusIcon,
+  RefreshIcon,
   SearchIcon,
   SendIcon,
 } from "../_components/icons";
 import { Combobox } from "../_components/Combobox";
+import { LoadingIndicator } from "../_components/LoadingIndicator";
+import { WorkingStatus } from "./WorkingStatus";
 import {
   createSession,
   dtoToUiSession,
@@ -28,6 +37,8 @@ import {
   fetchSession,
   fetchSessions,
   messagesToUi,
+  redoLatestMessage,
+  retryMessage,
   setWebSearch as apiSetWebSearch,
   streamMessage,
   streamQuickAction,
@@ -44,8 +55,62 @@ type QaForm = {
   value: string;
 };
 
+type TurnStream = (
+  sessionId: string,
+  handlers: StreamHandlers,
+) => Promise<void>;
+
+type LoadState = "loading" | "ready" | "error";
+type ConversationState = "idle" | LoadState;
+
+const CHAT_INPUT_MAX_HEIGHT = 160;
+
 function nowTime() {
   return new Date().toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" });
+}
+
+function HistorySkeleton() {
+  return (
+    <div className={styles.historySkeleton} role="status" aria-live="polite">
+      <span className={styles.srOnly}>Ładowanie historii rozmów…</span>
+      {Array.from({ length: 4 }, (_, index) => (
+        <div className={styles.historySkeletonItem} key={index} aria-hidden="true">
+          <span className={styles.skeletonLineWide} />
+          <span className={styles.skeletonLineShort} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ConversationSkeleton() {
+  return (
+    <div className={styles.conversationSkeleton} role="status" aria-live="polite">
+      <span className={styles.srOnly}>Ładowanie rozmowy…</span>
+      <div className={styles.skeletonUserRow} aria-hidden="true">
+        <span />
+        <span />
+      </div>
+      <div className={styles.skeletonBotRow} aria-hidden="true">
+        <div className={styles.skeletonAvatar} />
+        <div className={styles.skeletonBubble}>
+          <span />
+          <span />
+          <span />
+        </div>
+      </div>
+      <div className={styles.skeletonUserRowSmall} aria-hidden="true">
+        <span />
+      </div>
+      <div className={styles.skeletonBotRow} aria-hidden="true">
+        <div className={styles.skeletonAvatar} />
+        <div className={styles.skeletonBubbleSmall}>
+          <span />
+          <span />
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export function ChatView({
@@ -58,13 +123,23 @@ export function ChatView({
   const [sessions, setSessions] = useState<UiSession[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [messages, setMessages] = useState<UiMessage[]>([]);
+  const [historyState, setHistoryState] = useState<LoadState>("loading");
+  const [historyRefresh, setHistoryRefresh] = useState(0);
+  const [conversationState, setConversationState] =
+    useState<ConversationState>(sessionId ? "loading" : "idle");
+  const [loadingSessionId, setLoadingSessionId] = useState<string | null>(
+    sessionId ?? null,
+  );
   const [chatInput, setChatInput] = useState(initialPrompt);
   const [search, setSearch] = useState("");
   const [historyOpen, setHistoryOpen] = useState(true);
   const [webSearch, setWebSearch] = useState(false);
   const [sending, setSending] = useState(false);
+  const [creatingSession, setCreatingSession] = useState(false);
+  const [composerError, setComposerError] = useState<string | null>(null);
   const [qaForm, setQaForm] = useState<QaForm | null>(null);
   const [actions, setActions] = useState<QuickActionDto[]>([]);
+  const [actionsLoading, setActionsLoading] = useState(true);
   const [fbOpenId, setFbOpenId] = useState<string | null>(null);
   const [fbText, setFbText] = useState("");
   const [fbSent, setFbSent] = useState<Record<string, boolean>>({});
@@ -72,8 +147,15 @@ export function ChatView({
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
   const clientSeq = useRef(0);
+  const chatInputRef = useRef<HTMLTextAreaElement | null>(null);
   const copyResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const workingStatusExitTimers = useRef(
+    new Set<ReturnType<typeof setTimeout>>(),
+  );
   const titleInputRef = useRef<HTMLInputElement | null>(null);
+  const localRetryStreams = useRef(new Map<string, TurnStream>());
+  const sessionLoadController = useRef<AbortController | null>(null);
+  const turnInFlight = useRef(false);
 
   function nextId(prefix: string) {
     clientSeq.current += 1;
@@ -81,8 +163,14 @@ export function ChatView({
   }
 
   useEffect(() => {
+    const exitTimers = workingStatusExitTimers.current;
     return () => {
       if (copyResetTimer.current) clearTimeout(copyResetTimer.current);
+      for (const timer of exitTimers) {
+        clearTimeout(timer);
+      }
+      exitTimers.clear();
+      sessionLoadController.current?.abort();
     };
   }, []);
 
@@ -90,6 +178,18 @@ export function ChatView({
   useEffect(() => {
     if (editingTitle) titleInputRef.current?.select();
   }, [editingTitle]);
+
+  useLayoutEffect(() => {
+    const input = chatInputRef.current;
+    if (!input) return;
+
+    input.style.height = "auto";
+    const borderHeight = input.offsetHeight - input.clientHeight;
+    input.style.height = `${Math.min(
+      input.scrollHeight + borderHeight,
+      CHAT_INPUT_MAX_HEIGHT,
+    )}px`;
+  }, [chatInput]);
 
   // Load the admin-configured quick actions for the composer bar.
   useEffect(() => {
@@ -100,6 +200,8 @@ export function ChatView({
         if (!cancelled) setActions(list);
       } catch {
         // Leave the bar empty on failure; the composer still works.
+      } finally {
+        if (!cancelled) setActionsLoading(false);
       }
     })();
     return () => {
@@ -107,60 +209,124 @@ export function ChatView({
     };
   }, []);
 
-  // Load the session list on mount, then open the requested session (if any).
+  // Session history has its own lifecycle so it never masks conversation loading.
   useEffect(() => {
     let cancelled = false;
+    setHistoryState("loading");
     (async () => {
       try {
         const list = await fetchSessions();
         if (cancelled) return;
-        setSessions(list.map(dtoToUiSession));
-
-        if (!sessionId) return;
-        const requested = list.find((s) => s.id === sessionId);
-        if (!requested) return;
-
-        const detail = await fetchSession(requested.id);
-        if (cancelled) return;
-        setActiveId(detail.session.id);
-        setMessages(messagesToUi(detail.messages));
-        setWebSearch(detail.session.webSearchEnabled);
+        const loaded = list.map(dtoToUiSession);
+        setSessions((current) => [
+          ...current.filter(
+            (session) => !loaded.some((item) => item.id === session.id),
+          ),
+          ...loaded,
+        ]);
+        setHistoryState("ready");
       } catch {
-        // Leave the list empty on failure; the empty-state copy still applies.
+        if (!cancelled) setHistoryState("error");
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [sessionId]);
+  }, [historyRefresh]);
+
+  const loadSession = useCallback(async (id: string) => {
+    sessionLoadController.current?.abort();
+    const controller = new AbortController();
+    sessionLoadController.current = controller;
+
+    localRetryStreams.current.clear();
+    setActiveId(id);
+    setMessages([]);
+    setLoadingSessionId(id);
+    setConversationState("loading");
+    setComposerError(null);
+    setQaForm(null);
+    setEditingTitle(false);
+
+    try {
+      const { session, messages: loaded } = await fetchSession(
+        id,
+        controller.signal,
+      );
+      if (
+        controller.signal.aborted ||
+        sessionLoadController.current !== controller
+      ) {
+        return;
+      }
+
+      const uiSession = dtoToUiSession(session);
+      setSessions((current) => {
+        const exists = current.some((item) => item.id === session.id);
+        return exists
+          ? current.map((item) => (item.id === session.id ? uiSession : item))
+          : [uiSession, ...current];
+      });
+      setActiveId(session.id);
+      setMessages(messagesToUi(loaded));
+      setWebSearch(session.webSearchEnabled);
+      setConversationState("ready");
+      setLoadingSessionId(null);
+    } catch {
+      if (
+        controller.signal.aborted ||
+        sessionLoadController.current !== controller
+      ) {
+        return;
+      }
+      setMessages([]);
+      setConversationState("error");
+      setLoadingSessionId(null);
+    }
+  }, []);
+
+  // Deep links use the same cancellable conversation loader as sidebar clicks.
+  useEffect(() => {
+    if (sessionId) {
+      void loadSession(sessionId);
+      return;
+    }
+
+    sessionLoadController.current?.abort();
+    sessionLoadController.current = null;
+    setActiveId(null);
+    setMessages([]);
+    setConversationState("idle");
+    setLoadingSessionId(null);
+  }, [loadSession, sessionId]);
 
   const activeSession = sessions.find((s) => s.id === activeId) ?? null;
-  const activeTitle = activeSession?.title ?? "Nowa rozmowa";
+  const activeTitle =
+    activeSession?.title ?? (activeId ? "Rozmowa" : "Nowa rozmowa");
 
   const visibleSessions = sessions.filter((s) =>
     s.title.toLowerCase().includes(search.trim().toLowerCase()),
   );
 
-  async function selectSession(s: UiSession) {
-    setActiveId(s.id);
-    setQaForm(null);
-    setEditingTitle(false);
-    try {
-      const { session, messages: loaded } = await fetchSession(s.id);
-      setMessages(messagesToUi(loaded));
-      setWebSearch(session.webSearchEnabled);
-    } catch {
-      setMessages([]);
-    }
+  function selectSession(s: UiSession) {
+    if (creatingSession || (turnInFlight.current && !activeId)) return;
+    void loadSession(s.id);
   }
 
   function newChat() {
+    if (creatingSession || (turnInFlight.current && !activeId)) return;
+    sessionLoadController.current?.abort();
+    sessionLoadController.current = null;
+    localRetryStreams.current.clear();
     setQaForm(null);
     setChatInput("");
     setActiveId(null);
     setMessages([]);
     setWebSearch(false);
     setEditingTitle(false);
+    setConversationState("idle");
+    setLoadingSessionId(null);
+    setComposerError(null);
   }
 
   function startEditTitle() {
@@ -214,6 +380,7 @@ export function ChatView({
       setSessions((prev) => [dtoToUiSession(dto), ...prev]);
       setActiveId(dto.id);
       setWebSearch(dto.webSearchEnabled);
+      setConversationState("ready");
       return dto.id;
     } catch {
       return null;
@@ -227,18 +394,39 @@ export function ChatView({
    */
   async function runTurn(
     userText: string,
-    stream: (sessionId: string, handlers: StreamHandlers) => Promise<void>,
+    stream: TurnStream,
+    onSessionReady?: () => void,
   ) {
-    if (sending) return;
+    if (turnInFlight.current) return;
+    turnInFlight.current = true;
+    setSending(true);
+    setComposerError(null);
+    setCreatingSession(!activeId);
     const sid = await ensureSession();
-    if (!sid) return;
+    setCreatingSession(false);
+    if (!sid) {
+      setComposerError(
+        "Nie udało się utworzyć rozmowy. Sprawdź połączenie i spróbuj ponownie.",
+      );
+      setSending(false);
+      turnInFlight.current = false;
+      return;
+    }
 
+    onSessionReady?.();
     const time = nowTime();
     const userMsg: UiMessage = { id: nextId("user"), role: "user", time, content: userText };
     const botId = nextId("bot");
-    const botMsg: UiMessage = { id: botId, role: "bot", time, content: "", pending: true };
+    const botMsg: UiMessage = {
+      id: botId,
+      role: "bot",
+      time,
+      content: "",
+      pending: true,
+      workingStatus: "Analizuję pytanie…",
+    };
     setMessages((prev) => [...prev, userMsg, botMsg]);
-    setSending(true);
+    localRetryStreams.current.set(botId, stream);
 
     // Seed the sidebar title from the first turn (matches backend auto-title).
     setSessions((prev) =>
@@ -254,28 +442,301 @@ export function ChatView({
         prev.map((m) => (m.id === botId ? { ...m, ...patch } : m)),
       );
 
+    let workingStatusVisible = true;
+    let workingStatusExitTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const finishWorkingStatus = () => {
+      if (!workingStatusVisible || workingStatusExitTimer) return;
+      patchBot({ workingStatusLeaving: true });
+      workingStatusExitTimer = setTimeout(() => {
+        workingStatusVisible = false;
+        patchBot({ workingStatus: null, workingStatusLeaving: false });
+        if (workingStatusExitTimer) {
+          workingStatusExitTimers.current.delete(workingStatusExitTimer);
+        }
+        workingStatusExitTimer = null;
+      }, 260);
+      workingStatusExitTimers.current.add(workingStatusExitTimer);
+    };
+
+    const clearWorkingStatus = () => {
+      workingStatusVisible = false;
+      if (workingStatusExitTimer) {
+        clearTimeout(workingStatusExitTimer);
+        workingStatusExitTimers.current.delete(workingStatusExitTimer);
+        workingStatusExitTimer = null;
+      }
+      patchBot({ workingStatus: null, workingStatusLeaving: false });
+    };
+
     try {
       await stream(sid, {
-        onDelta: (delta) =>
+        onStatus: (workingStatus) => {
+          workingStatusVisible = true;
+          if (workingStatusExitTimer) {
+            clearTimeout(workingStatusExitTimer);
+            workingStatusExitTimers.current.delete(workingStatusExitTimer);
+            workingStatusExitTimer = null;
+          }
+          patchBot({ workingStatus, workingStatusLeaving: false });
+        },
+        onDelta: (delta) => {
+          finishWorkingStatus();
           setMessages((prev) =>
             prev.map((m) =>
-              m.id === botId ? { ...m, content: m.content + delta } : m,
+              m.id === botId
+                ? {
+                    ...m,
+                    content: m.content + delta,
+                  }
+                : m,
             ),
-          ),
-        onMeta: (source, metrics) => patchBot({ source, metrics, pending: false }),
-        onError: (msg) => patchBot({ content: msg, source: null, pending: false }),
+          );
+        },
+        onMeta: (source, metrics, meta) => {
+          finishWorkingStatus();
+          patchBot({
+            id: String(meta.messageId),
+            source,
+            metrics,
+            pending: false,
+          });
+          setMessages((prev) =>
+            prev.map((message) =>
+              message.id === userMsg.id
+                ? { ...message, id: String(meta.userMessageId) }
+                : message,
+            ),
+          );
+          localRetryStreams.current.delete(botId);
+        },
+        onError: (error) => {
+          clearWorkingStatus();
+          patchBot({
+            id: error.messageId ? String(error.messageId) : botId,
+            content: error.message,
+            source: null,
+            pending: false,
+            errorCode: error.errorCode,
+            retryable: error.retryable,
+            isRetried: error.isRetried,
+          });
+          if (error.userMessageId !== null) {
+            setMessages((prev) =>
+              prev.map((message) =>
+                message.id === userMsg.id
+                  ? { ...message, id: String(error.userMessageId) }
+                  : message,
+              ),
+            );
+          }
+          if (error.messageId !== null) {
+            localRetryStreams.current.delete(botId);
+          }
+        },
+      });
+    } catch {
+      clearWorkingStatus();
+      patchBot({
+        content: "Nie udało się połączyć z serwerem. Spróbuj ponownie.",
+        source: null,
+        pending: false,
+        errorCode: "CHAT_NETWORK_ERROR",
+        retryable: true,
       });
     } finally {
+      finishWorkingStatus();
       patchBot({ pending: false });
       setSending(false);
+      turnInFlight.current = false;
+    }
+  }
+
+  async function retryFailedMessage(message: UiMessage) {
+    if (
+      turnInFlight.current ||
+      !activeId ||
+      !message.retryable ||
+      !message.errorCode
+    ) {
+      return;
+    }
+
+    const originalId = message.id;
+    const localRetryStream = localRetryStreams.current.get(originalId);
+    turnInFlight.current = true;
+    setSending(true);
+    setMessages((prev) =>
+      prev.map((item) =>
+        item.id === originalId
+          ? {
+              ...item,
+              content: "",
+              errorCode: null,
+              retryable: false,
+              pending: true,
+              workingStatus: "Ponawiam próbę…",
+            }
+          : item,
+      ),
+    );
+
+    const patch = (next: Partial<UiMessage>) =>
+      setMessages((prev) =>
+        prev.map((item) =>
+          item.id === originalId || item.id === next.id
+            ? { ...item, ...next }
+            : item,
+        ),
+      );
+
+    try {
+      const executeRetry: TurnStream = localRetryStream
+        ? localRetryStream
+        : (sid, handlers) => retryMessage(sid, originalId, handlers);
+
+      await executeRetry(activeId, {
+        onStatus: (workingStatus) => patch({ workingStatus }),
+        onDelta: (delta) =>
+          setMessages((prev) =>
+            prev.map((item) =>
+              item.id === originalId
+                ? {
+                    ...item,
+                    workingStatus: null,
+                    content: item.content + delta,
+                  }
+                : item,
+            ),
+          ),
+        onMeta: (source, metrics, meta) => {
+          localRetryStreams.current.delete(originalId);
+          patch({
+            id: String(meta.messageId),
+            source,
+            metrics,
+            pending: false,
+            workingStatus: null,
+          });
+        },
+        onError: (error) => {
+          const persistedRetryFailure = error.messageId !== null;
+          if (persistedRetryFailure) {
+            localRetryStreams.current.delete(originalId);
+          }
+          patch({
+            id: error.messageId ? String(error.messageId) : originalId,
+            content: error.message,
+            errorCode: persistedRetryFailure
+              ? error.errorCode
+              : message.errorCode,
+            retryable: persistedRetryFailure
+              ? error.retryable
+              : message.retryable,
+            pending: false,
+            workingStatus: null,
+          });
+        },
+      });
+    } catch {
+      patch({
+        content: "Nie udało się połączyć z serwerem. Spróbuj ponownie.",
+        errorCode: message.errorCode || "CHAT_NETWORK_ERROR",
+        retryable: true,
+        pending: false,
+        workingStatus: null,
+      });
+    } finally {
+      patch({ pending: false, workingStatus: null });
+      setSending(false);
+      turnInFlight.current = false;
+    }
+  }
+
+  async function redoLastTurn() {
+    if (turnInFlight.current || !activeId) return;
+
+    const lastUserIndex = messages.findLastIndex((message) => message.role === "user");
+    if (lastUserIndex < 0) return;
+    const userMessageId = Number(messages[lastUserIndex].id);
+    if (!Number.isInteger(userMessageId) || userMessageId <= 0) return;
+
+    const botId = nextId("bot");
+    const pendingBot: UiMessage = {
+      id: botId,
+      role: "bot",
+      time: nowTime(),
+      content: "",
+      pending: true,
+      workingStatus: "Ponawiam wiadomość…",
+    };
+    setMessages((prev) => [...prev.slice(0, lastUserIndex + 1), pendingBot]);
+    turnInFlight.current = true;
+    setSending(true);
+
+    const patchBot = (patch: Partial<UiMessage>) =>
+      setMessages((prev) =>
+        prev.map((message) =>
+          message.id === botId ? { ...message, ...patch } : message,
+        ),
+      );
+
+    try {
+      await redoLatestMessage(activeId, userMessageId, {
+        onStatus: (workingStatus) => patchBot({ workingStatus }),
+        onDelta: (delta) =>
+          setMessages((prev) =>
+            prev.map((message) =>
+              message.id === botId
+                ? {
+                    ...message,
+                    workingStatus: null,
+                    content: message.content + delta,
+                  }
+                : message,
+            ),
+          ),
+        onMeta: (source, metrics, meta) =>
+          patchBot({
+            id: String(meta.messageId),
+            source,
+            metrics,
+            pending: false,
+            workingStatus: null,
+          }),
+        onError: (error) =>
+          patchBot({
+            id: error.messageId ? String(error.messageId) : botId,
+            content: error.message,
+            errorCode: error.errorCode,
+            retryable: error.retryable,
+            pending: false,
+            workingStatus: null,
+          }),
+      });
+    } catch {
+      patchBot({
+        content: "Nie udało się połączyć z serwerem. Spróbuj ponownie.",
+        errorCode: "CHAT_NETWORK_ERROR",
+        retryable: false,
+        pending: false,
+        workingStatus: null,
+      });
+    } finally {
+      patchBot({ pending: false, workingStatus: null });
+      setSending(false);
+      turnInFlight.current = false;
     }
   }
 
   async function send(text?: string) {
     const value = (text ?? chatInput).trim();
-    if (!value || sending) return;
-    setChatInput("");
-    await runTurn(value, (sid, handlers) => streamMessage(sid, value, handlers));
+    if (!value || turnInFlight.current) return;
+    await runTurn(
+      value,
+      (sid, handlers) => streamMessage(sid, value, handlers),
+      () => setChatInput(""),
+    );
   }
 
   // Runs a quick action; the backend resolves the prompt from template + input.
@@ -341,6 +802,18 @@ export function ChatView({
     }
   }
 
+  const conversationLoading = conversationState === "loading";
+  const conversationUnavailable =
+    conversationLoading || conversationState === "error";
+  const composerDisabled = sending || conversationUnavailable;
+  const sendLabel = creatingSession
+    ? "Tworzę rozmowę…"
+    : conversationLoading
+      ? "Ładowanie…"
+      : sending
+        ? "Wysyłanie…"
+        : "Wyślij";
+
   return (
     <div className={styles.chat}>
       <aside
@@ -348,7 +821,12 @@ export function ChatView({
         className={`${styles.history} ${historyOpen ? styles.historyOpen : styles.historyClosed}`}
       >
         <div className={styles.historyHead}>
-          <button type="button" className={styles.newChat} onClick={newChat}>
+          <button
+            type="button"
+            className={styles.newChat}
+            disabled={creatingSession}
+            onClick={newChat}
+          >
             <span className={styles.newChatPlus}>+</span>
             Nowa rozmowa
           </button>
@@ -360,25 +838,59 @@ export function ChatView({
               className={styles.searchInput}
               placeholder="Szukaj rozmów…"
               value={search}
+              disabled={historyState !== "ready"}
               onChange={(e) => setSearch(e.target.value)}
             />
           </div>
         </div>
-        <div className={styles.historyList}>
-          {visibleSessions.map((s) => (
-            <button
-              type="button"
-              key={s.id}
-              className={s.id === activeId ? styles.sessionItemActive : styles.sessionItem}
-              onClick={() => selectSession(s)}
-            >
-              <div className={styles.sessionTitle}>{s.title}</div>
-              <div className={styles.sessionMeta}>
-                <span className={styles.sessionTime}>{s.time}</span>
-                <span className={styles.tagChat}>CHAT</span>
-              </div>
-            </button>
-          ))}
+        <div
+          className={styles.historyList}
+          aria-busy={historyState === "loading"}
+        >
+          {historyState === "loading" ? (
+            <HistorySkeleton />
+          ) : historyState === "error" ? (
+            <div className={styles.historyError} role="alert">
+              <span>Nie udało się wczytać historii.</span>
+              <button
+                type="button"
+                className={styles.historyRetry}
+                onClick={() => setHistoryRefresh((value) => value + 1)}
+              >
+                Spróbuj ponownie
+              </button>
+            </div>
+          ) : visibleSessions.length === 0 ? (
+            <div className={styles.historyEmpty}>
+              {search.trim() ? "Brak pasujących rozmów." : "Brak zapisanych rozmów."}
+            </div>
+          ) : (
+            visibleSessions.map((s) => {
+              const sessionLoading = loadingSessionId === s.id;
+              return (
+                <button
+                  type="button"
+                  key={s.id}
+                  className={`${s.id === activeId ? styles.sessionItemActive : styles.sessionItem} ${
+                    sessionLoading ? styles.sessionItemLoading : ""
+                  }`}
+                  aria-busy={sessionLoading}
+                  disabled={creatingSession}
+                  onClick={() => selectSession(s)}
+                >
+                  <div className={styles.sessionTitle}>{s.title}</div>
+                  <div className={styles.sessionMeta}>
+                    <span className={styles.sessionTime}>{s.time}</span>
+                    {sessionLoading ? (
+                      <span className={styles.sessionLoadingLabel}>Ładowanie…</span>
+                    ) : (
+                      <span className={styles.tagChat}>CHAT</span>
+                    )}
+                  </div>
+                </button>
+              );
+            })
+          )}
         </div>
       </aside>
 
@@ -434,7 +946,7 @@ export function ChatView({
           ) : (
             <>
               <div className={styles.columnTitle}>{activeTitle}</div>
-              {activeSession ? (
+              {activeSession && !conversationUnavailable ? (
                 <button
                   type="button"
                   className={styles.titleEditToggle}
@@ -449,34 +961,88 @@ export function ChatView({
           )}
         </div>
 
-        <div className={styles.messages}>
+        <div
+          className={styles.messages}
+          aria-busy={conversationLoading}
+        >
           <div className={styles.messagesInner}>
-            {messages.length === 0 ? (
+            {conversationLoading ? (
+              <ConversationSkeleton />
+            ) : conversationState === "error" ? (
+              <div className={styles.conversationError} role="alert">
+                <div className={styles.conversationErrorTitle}>
+                  Nie udało się wczytać rozmowy.
+                </div>
+                <div>Sprawdź połączenie i spróbuj ponownie.</div>
+                <button
+                  type="button"
+                  className={styles.retryButton}
+                  onClick={() => {
+                    if (activeId) void loadSession(activeId);
+                  }}
+                >
+                  Spróbuj ponownie
+                </button>
+              </div>
+            ) : messages.length === 0 ? (
               <div className={styles.emptyState}>
                 Rozpocznij rozmowę — zapytaj o stany magazynowe, faktury lub kontrahentów.
               </div>
             ) : null}
 
-            {messages.map((msg) =>
+            {messages.map((msg, index) =>
               msg.role === "bot" ? (
                 <div className={styles.botRow} key={msg.id}>
                   <div className={styles.botAvatar}>
                     <BotIcon size={20} />
                   </div>
                   <div className={styles.botBody}>
-                    <div className={styles.botBubble}>
-                      {msg.pending && !msg.content ? (
-                        <span className={styles.typing}>Generuję odpowiedź…</span>
-                      ) : (
-                        <div className={styles.markdown}>
-                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                            {msg.content}
-                          </ReactMarkdown>
-                        </div>
-                      )}
-                    </div>
+                    <WorkingStatus
+                      status={msg.workingStatus ?? null}
+                      leaving={msg.workingStatusLeaving ?? false}
+                    />
+                    {msg.content || !msg.workingStatus ? (
+                      <div
+                        className={
+                          msg.errorCode ? styles.errorBubble : styles.botBubble
+                        }
+                        role={msg.errorCode ? "alert" : undefined}
+                      >
+                        {msg.pending && !msg.content ? (
+                          <span className={styles.typing}>Generuję odpowiedź…</span>
+                        ) : (
+                          msg.errorCode ? (
+                            <div className={styles.errorContent}>
+                              <div className={styles.errorTitle}>
+                                Nie udało się przygotować odpowiedzi
+                              </div>
+                              <div>{msg.content}</div>
+                              <div className={styles.errorCode}>
+                                Kod: {msg.errorCode}
+                              </div>
+                              {msg.retryable ? (
+                                <button
+                                  type="button"
+                                  className={styles.retryButton}
+                                  disabled={sending}
+                                  onClick={() => void retryFailedMessage(msg)}
+                                >
+                                  Spróbuj ponownie
+                                </button>
+                              ) : null}
+                            </div>
+                          ) : (
+                            <div className={styles.markdown}>
+                              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                {msg.content}
+                              </ReactMarkdown>
+                            </div>
+                          )
+                        )}
+                      </div>
+                    ) : null}
 
-                    {!msg.pending ? (
+                    {!msg.pending && !msg.errorCode ? (
                       <div className={styles.botMeta}>
                         {msg.source ? (
                           <>
@@ -576,7 +1142,22 @@ export function ChatView({
               ) : (
                 <div className={styles.userRow} key={msg.id}>
                   <div className={styles.userBubble}>{msg.content}</div>
-                  <div className={styles.userTime}>{msg.time}</div>
+                  <div className={styles.userMeta}>
+                    <div className={styles.userTime}>{msg.time}</div>
+                    {index === messages.findLastIndex((item) => item.role === "user") &&
+                    Number.isInteger(Number(msg.id)) ? (
+                      <button
+                        type="button"
+                        className={styles.redoButton}
+                        aria-label="Ponów ostatnią wiadomość"
+                        title="Ponów wiadomość"
+                        disabled={sending}
+                        onClick={() => void redoLastTurn()}
+                      >
+                        <RefreshIcon size={14} />
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
               ),
             )}
@@ -632,43 +1213,74 @@ export function ChatView({
                 type="button"
                 className={webSearch ? styles.webToggleOn : styles.webToggle}
                 onClick={toggleWebSearch}
+                disabled={composerDisabled}
               >
                 <span className={styles.webGlobe}>🌐</span>
                 Wyszukiwanie w internecie: {webSearch ? "WŁ" : "WYŁ"}
               </button>
-              {actions.map((action) => (
-                <button
-                  type="button"
-                  key={action.key}
-                  className={styles.quickPill}
-                  onClick={() => onQuickAction(action)}
-                  disabled={sending}
-                >
-                  {action.input ? <span className={styles.quickCaret}>▼</span> : null}
-                  {action.name}
-                </button>
-              ))}
+              {actionsLoading ? (
+                <div className={styles.quickLoading}>
+                  <LoadingIndicator label="Ładowanie akcji…" />
+                </div>
+              ) : (
+                actions.map((action) => (
+                  <button
+                    type="button"
+                    key={action.key}
+                    className={styles.quickPill}
+                    onClick={() => onQuickAction(action)}
+                    disabled={composerDisabled}
+                  >
+                    {action.input ? <span className={styles.quickCaret}>▼</span> : null}
+                    {action.name}
+                  </button>
+                ))
+              )}
             </div>
 
+            {composerError ? (
+              <div className={styles.composerError} role="alert">
+                {composerError}
+              </div>
+            ) : null}
+
             <div className={styles.inputRow}>
-              <input
+              <textarea
+                ref={chatInputRef}
                 className={styles.chatInput}
                 placeholder={'Zapytaj np. "Jaki jest stan magazynowy BBC003?"'}
                 value={chatInput}
-                disabled={sending}
+                disabled={composerDisabled}
+                rows={1}
                 onChange={(e) => setChatInput(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") void send();
+                  if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
+
+                  e.preventDefault();
+                  e.stopPropagation();
+
+                  if (e.shiftKey) {
+                    e.currentTarget.setRangeText(
+                      "\n",
+                      e.currentTarget.selectionStart,
+                      e.currentTarget.selectionEnd,
+                      "end",
+                    );
+                    setChatInput(e.currentTarget.value);
+                    return;
+                  }
+
+                  void send();
                 }}
               />
               <button
                 type="button"
                 className={styles.sendButton}
                 onClick={() => void send()}
-                disabled={sending}
+                disabled={composerDisabled}
               >
                 <SendIcon size={16} />
-                {sending ? "Wysyłanie…" : "Wyślij"}
+                {sendLabel}
               </button>
             </div>
           </div>

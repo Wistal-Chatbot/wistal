@@ -52,6 +52,10 @@ export interface MessageDto {
   content: string;
   sqlGenerated: string | null;
   rowCount: number | null;
+  errorCode: string | null;
+  retryable: boolean;
+  isRetried: boolean;
+  retryOfMessageId: number | null;
   metadata: MessageMetadata;
   createdAt: string;
 }

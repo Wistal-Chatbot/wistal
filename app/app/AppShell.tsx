@@ -90,6 +90,7 @@ export function AppShell({
   const router = useRouter();
   const current = titleForPath(pathname);
   const [openMenu, setOpenMenu] = useState<"user" | "usage" | null>(null);
+  const [loggingOut, setLoggingOut] = useState(false);
   const [usageState, setUsageState] = useState<UsageState>({
     status: "loading",
     usage: null,
@@ -122,7 +123,8 @@ export function AppShell({
   }, []);
 
   async function logout() {
-    setOpenMenu(null);
+    if (loggingOut) return;
+    setLoggingOut(true);
     try {
       await fetch("/api/auth/logout", { method: "POST" });
     } catch {
@@ -164,6 +166,7 @@ export function AppShell({
           <button
             type="button"
             className={styles.userPanel}
+            disabled={loggingOut}
             onClick={() => setOpenMenu((m) => (m === "user" ? null : "user"))}
           >
             <span className={styles.initials}>{currentUser.initials}</span>
@@ -189,9 +192,14 @@ export function AppShell({
                 ) : null}
               </div>
               <div className={styles.popoverDivider} />
-              <button type="button" className={styles.logoutButton} onClick={logout}>
+              <button
+                type="button"
+                className={styles.logoutButton}
+                disabled={loggingOut}
+                onClick={logout}
+              >
                 <LogoutIcon size={16} />
-                Wyloguj się
+                {loggingOut ? "Wylogowywanie…" : "Wyloguj się"}
               </button>
             </div>
           ) : null}
@@ -294,6 +302,7 @@ export function AppShell({
           type="button"
           aria-label="Zamknij menu"
           className={styles.backdrop}
+          disabled={loggingOut}
           onClick={() => setOpenMenu(null)}
         />
       ) : null}

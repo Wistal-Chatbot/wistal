@@ -52,6 +52,41 @@ function pdfFilename(execution: AiReportExecutionDetailDto): string {
   return `raport-ai-${slugify(execution.reportName)}-${execution.id.slice(0, 8)}.pdf`;
 }
 
+function ReportExecutionSkeleton() {
+  return (
+    <div
+      className={styles.executionSkeleton}
+      role="status"
+      aria-busy="true"
+      aria-live="polite"
+    >
+      <span className={styles.srOnly}>Ładowanie wyniku raportu…</span>
+      <div className={styles.skeletonHeader} aria-hidden="true">
+        <div>
+          <span className={styles.skeletonKicker} />
+          <span className={styles.skeletonTitle} />
+        </div>
+        <span className={styles.skeletonAction} />
+      </div>
+      <div className={styles.skeletonLayout} aria-hidden="true">
+        <div className={styles.skeletonResult}>
+          <span />
+          <span />
+          <span />
+          <span />
+        </div>
+        <div className={styles.skeletonMeta}>
+          <span />
+          <span />
+          <span />
+          <span />
+          <span />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function elementDebugInfo(element: HTMLElement) {
   const rect = element.getBoundingClientRect();
   return {
@@ -147,20 +182,29 @@ export function ReportExecutionView({ executionId }: { executionId: string }) {
   const [pdfLoading, setPdfLoading] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
     void (async () => {
       try {
         setExecution(null);
-        setExecution(await getRun(executionId));
-        setError(null);
+        const nextExecution = await getRun(executionId);
+        if (!cancelled) {
+          setExecution(nextExecution);
+          setError(null);
+        }
       } catch (e) {
-        setExecution(null);
-        setError(
-          e instanceof Error
-            ? e.message
-            : "Nie udało się wczytać uruchomienia raportu.",
-        );
+        if (!cancelled) {
+          setExecution(null);
+          setError(
+            e instanceof Error
+              ? e.message
+              : "Nie udało się wczytać uruchomienia raportu.",
+          );
+        }
       }
     })();
+    return () => {
+      cancelled = true;
+    };
   }, [executionId]);
 
   async function downloadPdf() {
@@ -271,7 +315,7 @@ export function ReportExecutionView({ executionId }: { executionId: string }) {
       {error ? (
         <div className={styles.stateMsg}>{error}</div>
       ) : !execution ? (
-        <div className={styles.stateMsg}>Ładowanie…</div>
+        <ReportExecutionSkeleton />
       ) : (
         <>
           <div className={styles.header}>

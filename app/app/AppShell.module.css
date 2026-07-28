@@ -101,8 +101,12 @@
   width: 100%;
 }
 
-.userPanel:hover {
+.userPanel:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.04);
+}
+
+.userPanel:disabled {
+  cursor: wait;
 }
 
 .initials {
@@ -213,8 +217,13 @@
   width: 100%;
 }
 
-.logoutButton:hover {
+.logoutButton:hover:not(:disabled) {
   background: #f7ece9;
+}
+
+.logoutButton:disabled {
+  cursor: wait;
+  opacity: 0.68;
 }
 
 /* ── Main column + topbar ────────────────────────────────────────────── */

@@ -6,7 +6,6 @@ import {
   createChatMessage,
   getRecentMessages,
   insertQueryAudit,
-  touchChatSession,
 } from "@/lib/db/queries";
 import type { TokenUsageMetadata } from "@/lib/api/chat-types";
 import { getCompanyData, searchCompanies } from "@/lib/bizraport/client";
@@ -22,12 +21,35 @@ import { CHAT_MODEL, MAX_OUTPUT_TOKENS, getAnthropic } from "./anthropic";
 import { buildSystemPrompt } from "./system-prompt";
 import { addTokenUsage, createTokenUsageTotals } from "./token-usage-core";
 import { buildTools } from "./tools";
+import {
+  finalAnswerFromModelTurn,
+  workingStatusForTools,
+} from "./turn-presentation";
+import {
+  persistChatError,
+  touchChatSessionBestEffort,
+  type ChatErrorEvent,
+  type RetryContext,
+} from "./chat-errors";
+import {
+  ChatResponsePersistenceError,
+  classifyChatError,
+} from "./chat-error-classification";
+import {
+  buildFinalizationMessages,
+  ChatResponseIncompleteError,
+  MAX_EXPLORATION_ROUNDS,
+  shouldStopExploration,
+  sqlExecutionFeedback,
+} from "./orchestrator-policy";
 
 export type ChatTurnEvent =
+  | { type: "status"; text: string }
   | { type: "delta"; text: string }
   | {
       type: "meta";
       messageId: number;
+      userMessageId: number;
       tables: string[];
       rowCount: number | null;
       executionMs: number | null;
@@ -36,11 +58,18 @@ export type ChatTurnEvent =
       tokensUsed: number | null;
       tokenUsage: TokenUsageMetadata | null;
     }
-  | { type: "error"; error: string };
+  | ChatErrorEvent;
 
-const MAX_ITERATIONS = 5;
-const MAX_SQL_RETRIES = 2;
 const ROW_LIMIT = 500;
+/**
+ * Rows actually serialized into the `tool_result` handed back to the model. The
+ * query still executes with `LIMIT 500` (ROW_LIMIT) so `row_count` and truncation
+ * detection stay accurate, but only the first MODEL_ROW_LIMIT rows are paid for as
+ * (uncached) model input on the summarize call — the biggest per-message cost.
+ */
+const MODEL_ROW_LIMIT = 150;
+/** Prior messages replayed as context each turn (kept small — resent uncached). */
+const HISTORY_MESSAGE_LIMIT = 6;
 const STATEMENT_TIMEOUT_MS = 10_000;
 
 function toAnthropicMessage(message: ChatMessage): Anthropic.MessageParam {
@@ -48,14 +77,6 @@ function toAnthropicMessage(message: ChatMessage): Anthropic.MessageParam {
     role: message.messageType === "assistant" ? "assistant" : "user",
     content: message.content,
   };
-}
-
-function postgresErrorMessage(error: unknown): string {
-  const code = (error as { code?: string } | null)?.code;
-  if (code === "57014") {
-    return "Zapytanie trwało zbyt długo. Zawęź zakres dat lub dodaj filtry.";
-  }
-  return "Wystąpił błąd podczas wykonywania zapytania. Spróbuj zawęzić zakres danych.";
 }
 
 /**
@@ -69,15 +90,32 @@ export async function* runChatTurn(params: {
   user: AppUser;
   /** Audit trail source; `quick_action` when driven by a Szybka akcja. */
   source?: "chatbot" | "quick_action";
+  retryContext: RetryContext;
+  retryOfMessageId?: number | null;
 }): AsyncGenerator<ChatTurnEvent> {
   const turnStartedAt = Date.now();
-  const { session, user, source = "chatbot" } = params;
+  const {
+    session,
+    user,
+    source = "chatbot",
+    retryContext,
+    retryOfMessageId = null,
+  } = params;
   const anthropic = getAnthropic();
+  yield { type: "status", text: "Analizuję pytanie…" };
   const allowlist = await getPublicTableAllowlist();
 
-  const history = await getRecentMessages(session.id);
+  const history = await getRecentMessages(
+    session.id,
+    HISTORY_MESSAGE_LIMIT,
+    retryContext.userMessageId,
+  );
   const messages: Anthropic.MessageParam[] = history
-    .filter((m) => m.messageType === "user" || m.messageType === "assistant")
+    .filter(
+      (m) =>
+        (m.messageType === "user" || m.messageType === "assistant") &&
+        !m.errorCode,
+    )
     .map(toAnthropicMessage);
   // The Anthropic API requires the first message to be a user turn; the history
   // window can begin on an assistant message in long conversations.
@@ -88,7 +126,7 @@ export async function* runChatTurn(params: {
   const userInput =
     [...history].reverse().find((m) => m.messageType === "user")?.content ?? "";
 
-  const system = buildSystemPrompt(session.webSearchEnabled);
+  const system = await buildSystemPrompt(session.webSearchEnabled);
   const tools = buildTools(session.webSearchEnabled);
 
   log.info("chat.orchestrator", "turn start", {
@@ -109,11 +147,22 @@ export async function* runChatTurn(params: {
   let lastRowCount: number | null = null;
   let totalExecutionMs = 0;
   let lastAuditId: number | null = null;
-  let sqlRetries = 0;
+  let sqlFailures = 0;
+  let sqlSuccesses = 0;
+  let explorationRounds = 0;
+  let toolCallCount = 0;
+  let forcedFinalization = false;
+  let finalAnswerStreamed = false;
+  let terminationReason = "unknown";
   const tokenUsage = createTokenUsageTotals();
 
   try {
-    loop: for (let i = 0; i < MAX_ITERATIONS; i++) {
+    exploration: for (
+      let i = 0;
+      i < MAX_EXPLORATION_ROUNDS;
+      i += 1
+    ) {
+      explorationRounds += 1;
       const stream = anthropic.messages.stream({
         model: CHAT_MODEL,
         max_tokens: MAX_OUTPUT_TOKENS,
@@ -130,13 +179,11 @@ export async function* runChatTurn(params: {
           event.delta.type === "text_delta"
         ) {
           turnText += event.delta.text;
-          yield { type: "delta", text: event.delta.text };
         }
       }
 
       const message = await stream.finalMessage();
       addTokenUsage(tokenUsage, message.usage);
-      messages.push({ role: "assistant", content: message.content });
 
       log.info("chat.orchestrator", "model turn", {
         sessionId: session.id,
@@ -147,31 +194,49 @@ export async function* runChatTurn(params: {
 
       // Server-tool loop (web search) paused — re-send to resume.
       if (message.stop_reason === "pause_turn") {
+        messages.push({ role: "assistant", content: message.content });
         log.info("chat.orchestrator", "web search running (pause_turn)", {
           sessionId: session.id,
           iteration: i,
         });
+        yield { type: "status", text: "Wyszukuję informacje w internecie…" };
         continue;
       }
 
-      if (message.stop_reason !== "tool_use") {
-        finalText = turnText.trim();
+      const completedAnswer = finalAnswerFromModelTurn(
+        message.stop_reason,
+        turnText,
+      );
+      if (completedAnswer !== null) {
+        terminationReason = completedAnswer
+          ? "model_ready_for_synthesis"
+          : "empty_model_answer";
         break;
       }
 
+      messages.push({ role: "assistant", content: message.content });
       const toolUses = message.content.filter(
         (block): block is Anthropic.ToolUseBlock => block.type === "tool_use",
       );
+      toolCallCount += toolUses.length;
 
       const clarification = toolUses.find((t) => t.name === "ask_clarification");
       if (clarification) {
         const question = (clarification.input as { question?: string }).question;
         finalText =
           question?.trim() || "Czy możesz doprecyzować swoje pytanie?";
+        terminationReason = "clarification";
         log.info("chat.orchestrator", "ask_clarification", {
           sessionId: session.id,
         });
         break;
+      }
+
+      const toolStatus = workingStatusForTools(
+        toolUses.map((toolUse) => toolUse.name),
+      );
+      if (toolStatus) {
+        yield { type: "status", text: toolStatus };
       }
 
       const toolResults: Anthropic.ToolResultBlockParam[] = [];
@@ -288,10 +353,20 @@ export async function* runChatTurn(params: {
         }
 
         const sql = String((toolUse.input as { sql?: string }).sql ?? "");
+        if (shouldStopExploration(sqlFailures)) {
+          toolResults.push({
+            type: "tool_result",
+            tool_use_id: toolUse.id,
+            content:
+              "Limit błędów SQL został osiągnięty. Przygotuj odpowiedź na podstawie poprawnych wyników, które już otrzymałeś.",
+            is_error: true,
+          });
+          continue;
+        }
         const validation = validateSql(sql, allowlist);
 
         if (!validation.ok) {
-          sqlRetries += 1;
+          sqlFailures += 1;
           log.warn("chat.orchestrator", "sql rejected by validator", {
             sessionId: session.id,
             error: validation.error,
@@ -324,6 +399,7 @@ export async function* runChatTurn(params: {
           validation.tablesUsed.forEach((t) => tablesUsedAll.add(t));
           lastRowCount = rows.length;
           totalExecutionMs += executionMs;
+          sqlSuccesses += 1;
           log.info("chat.orchestrator", "sql executed", {
             sessionId: session.id,
             tables: validation.tablesUsed,
@@ -343,12 +419,18 @@ export async function* runChatTurn(params: {
             executionMs,
             llmModel: CHAT_MODEL,
           });
+          const rowsForModel = rows.slice(0, MODEL_ROW_LIMIT);
           toolResults.push({
             type: "tool_result",
             tool_use_id: toolUse.id,
-            content: JSON.stringify({ row_count: rows.length, rows }),
+            content: JSON.stringify({
+              row_count: rows.length,
+              rows_shown: rowsForModel.length,
+              rows: rowsForModel,
+            }),
           });
         } catch (error) {
+          sqlFailures += 1;
           log.error("chat.orchestrator", "sql execution failed", {
             sessionId: session.id,
             error: error instanceof Error ? error.message : String(error),
@@ -369,52 +451,138 @@ export async function* runChatTurn(params: {
           toolResults.push({
             type: "tool_result",
             tool_use_id: toolUse.id,
-            content: postgresErrorMessage(error),
+            content: sqlExecutionFeedback(error),
             is_error: true,
           });
         }
       }
 
-      if (sqlRetries > MAX_SQL_RETRIES) {
-        finalText =
-          "Nie udało się przygotować poprawnego zapytania. Spróbuj sformułować pytanie inaczej.";
-        break loop;
-      }
-
       messages.push({ role: "user", content: toolResults });
+      yield { type: "status", text: "Przygotowuję odpowiedź…" };
+      if (shouldStopExploration(sqlFailures)) {
+        terminationReason = "sql_failure_budget";
+        break exploration;
+      }
+    }
+
+    if (!finalText) {
+      if (terminationReason === "unknown") {
+        terminationReason = "exploration_budget";
+        forcedFinalization = true;
+      } else if (
+        terminationReason === "sql_failure_budget" ||
+        terminationReason === "empty_model_answer"
+      ) {
+        forcedFinalization = true;
+      }
+      log.info("chat.orchestrator", "starting final answer synthesis", {
+        sessionId: session.id,
+        explorationRounds,
+        toolCallCount,
+        sqlSuccesses,
+        sqlFailures,
+        terminationReason,
+      });
+
+      yield { type: "status", text: "Przygotowuję odpowiedź…" };
+      const finalStream = anthropic.messages.stream({
+        model: CHAT_MODEL,
+        max_tokens: MAX_OUTPUT_TOKENS,
+        system,
+        messages: buildFinalizationMessages(messages),
+        tools,
+        tool_choice: { type: "none" },
+      });
+      let finalizationText = "";
+      for await (const event of finalStream) {
+        if (
+          event.type === "content_block_delta" &&
+          event.delta.type === "text_delta"
+        ) {
+          finalizationText += event.delta.text;
+          finalAnswerStreamed = true;
+          yield { type: "delta", text: event.delta.text };
+        }
+      }
+      const finalMessage = await finalStream.finalMessage();
+      addTokenUsage(tokenUsage, finalMessage.usage);
+      finalText = finalizationText.trim();
+      if (!finalText) {
+        throw new ChatResponseIncompleteError();
+      }
+      terminationReason = forcedFinalization
+        ? "forced_finalization"
+        : "final_synthesis";
     }
   } catch (error) {
+    const classified = classifyChatError(error);
     log.error("chat.orchestrator", "turn failed", {
       sessionId: session.id,
-      error: error instanceof Error ? error.message : String(error),
+      errorCode: classified.code,
+      error: classified.detail,
       stack: error instanceof Error ? error.stack : undefined,
+      explorationRounds,
+      toolCallCount,
+      sqlSuccesses,
+      sqlFailures,
+      forcedFinalization,
+      terminationReason,
     });
-    yield { type: "error", error: "Serwis AI jest tymczasowo niedostępny." };
+    yield await persistChatError({
+      error,
+      sessionId: session.id,
+      userId: user.id,
+      retryContext,
+      retryOfMessageId,
+    });
     return;
-  }
-
-  if (!finalText) {
-    finalText = "Przepraszam, nie udało się przygotować odpowiedzi.";
   }
 
   const responseMs = Date.now() - turnStartedAt;
 
-  const assistant = await createChatMessage({
-    chatSessionId: session.id,
-    userId: user.id,
-    messageType: "assistant",
-    content: finalText,
-    rowCount: lastRowCount,
-    metadata: {
-      tables: [...tablesUsedAll],
-      executionMs: totalExecutionMs || null,
-      responseMs,
-      queryAuditId: lastAuditId,
-      tokensUsed: tokenUsage.totalTokens || null,
-      tokenUsage: tokenUsage.totalTokens > 0 ? tokenUsage : null,
-    },
-  });
-  await touchChatSession(session.id);
+  if (!finalAnswerStreamed) {
+    yield { type: "delta", text: finalText };
+  }
+
+  yield { type: "status", text: "Zapisuję odpowiedź…" };
+
+  let assistant: Awaited<ReturnType<typeof createChatMessage>>;
+  try {
+    assistant = await createChatMessage({
+      chatSessionId: session.id,
+      userId: user.id,
+      messageType: "assistant",
+      content: finalText,
+      retryOfMessageId,
+      rowCount: lastRowCount,
+      metadata: {
+        tables: [...tablesUsedAll],
+        executionMs: totalExecutionMs || null,
+        responseMs,
+        queryAuditId: lastAuditId,
+        tokensUsed: tokenUsage.totalTokens || null,
+        tokenUsage: tokenUsage.totalTokens > 0 ? tokenUsage : null,
+      },
+    });
+  } catch (error) {
+    const persistenceError = new ChatResponsePersistenceError(error);
+    const classified = classifyChatError(persistenceError);
+    log.error("chat.orchestrator", "assistant persistence failed", {
+      sessionId: session.id,
+      userId: user.id,
+      errorCode: classified.code,
+      error: classified.detail,
+    });
+    yield await persistChatError({
+      error: persistenceError,
+      sessionId: session.id,
+      userId: user.id,
+      retryContext,
+      retryOfMessageId,
+    });
+    return;
+  }
+  await touchChatSessionBestEffort(session.id, "chat.orchestrator");
 
   log.info("chat.orchestrator", "turn done", {
     sessionId: session.id,
@@ -425,11 +593,18 @@ export async function* runChatTurn(params: {
     responseMs,
     tokensUsed: tokenUsage.totalTokens || null,
     finalTextLength: finalText.length,
+    explorationRounds,
+    toolCallCount,
+    sqlSuccesses,
+    sqlFailures,
+    forcedFinalization,
+    terminationReason,
   });
 
   yield {
     type: "meta",
     messageId: assistant.id,
+    userMessageId: retryContext.userMessageId,
     tables: [...tablesUsedAll],
     rowCount: lastRowCount,
     executionMs: totalExecutionMs || null,

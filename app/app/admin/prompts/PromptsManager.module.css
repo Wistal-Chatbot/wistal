@@ -1,0 +1,263 @@
+/* Prompt editor: a sidebar of prompt keys next to a large editing pane.
+   Shared chrome (cards, buttons, pills, form errors) comes from
+   AdminView.module.css — only prompt-specific layout lives here. */
+
+.layout {
+  align-items: start;
+  display: grid;
+  gap: 20px;
+  grid-template-columns: 260px minmax(0, 1fr);
+}
+
+/* ── Prompt list ─────────────────────────────────────────────────────── */
+
+.list {
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.listItem,
+.listItemActive {
+  border-bottom: 1px solid var(--border-soft);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 13px 15px;
+  text-align: left;
+  transition: background 0.12s ease;
+}
+
+.listItem:last-child,
+.listItemActive:last-child {
+  border-bottom: none;
+}
+
+.listItem {
+  background: transparent;
+  border-left: 3px solid transparent;
+}
+
+.listItem:hover {
+  background: #f6f7f9;
+}
+
+.listItemActive {
+  background: #f2f3fb;
+  border-left: 3px solid var(--primary);
+}
+
+.listLabel {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.listMeta {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+/* ── Editor pane ─────────────────────────────────────────────────────── */
+
+.editor {
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  padding: 20px;
+}
+
+.editorHead {
+  margin-bottom: 14px;
+}
+
+.editorDesc {
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+  margin-top: -10px;
+}
+
+.editorMeta {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  margin-top: 6px;
+}
+
+.hint,
+.warning {
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.55;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+}
+
+.hint {
+  background: #f6f7f9;
+  border: 1px solid var(--border-soft);
+  color: var(--text-secondary);
+}
+
+.warning {
+  background: #fcf2f0;
+  border: 1px solid #edcac2;
+  color: var(--accent-red);
+}
+
+.hint code,
+.warning code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.promptArea {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.65;
+  min-height: 440px;
+  padding: 14px;
+  resize: vertical;
+  width: 100%;
+}
+
+.promptArea:focus {
+  border-color: var(--primary);
+  outline: none;
+}
+
+.editorFoot {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: space-between;
+  margin-top: 12px;
+}
+
+.counter {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.notice {
+  color: var(--accent-green);
+  font-size: 12px;
+  margin-top: 10px;
+}
+
+/* ── Version history ─────────────────────────────────────────────────── */
+
+.history {
+  border-top: 1px solid var(--border-soft);
+  margin-top: 22px;
+  padding-top: 18px;
+}
+
+.historyTitle {
+  align-items: center;
+  display: flex;
+  font-size: 13px;
+  font-weight: 600;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.historyEmpty {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.historyList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  list-style: none;
+}
+
+.historyRow {
+  align-items: center;
+  border-bottom: 1px solid var(--border-soft);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: space-between;
+  padding: 9px 0;
+}
+
+.historyRow:last-child {
+  border-bottom: none;
+}
+
+.historyInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.historyVersion {
+  align-items: center;
+  color: var(--text-primary);
+  display: flex;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  gap: 8px;
+}
+
+.historyDate {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.historyActions {
+  display: flex;
+  gap: 6px;
+}
+
+.historyPreview {
+  background: #f6f7f9;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  flex-basis: 100%;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.6;
+  margin-top: 8px;
+  max-height: 320px;
+  overflow: auto;
+  padding: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+@media (max-width: 900px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .list {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .listItem,
+  .listItemActive {
+    border-bottom: none;
+    flex: 1 1 160px;
+  }
+}

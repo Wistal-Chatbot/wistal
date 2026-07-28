@@ -1,0 +1,291 @@
+/* ERP tables editor: a sidebar of tables next to a structured editor.
+   Shared chrome (inputs, buttons, labels, errors) comes from
+   AdminView.module.css — only ERP-specific layout lives here. */
+
+.layout {
+  align-items: start;
+  display: grid;
+  gap: 20px;
+  grid-template-columns: 220px minmax(0, 1fr);
+}
+
+/* ── Table list ──────────────────────────────────────────────────────── */
+
+.tableNav {
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.navItem,
+.navItemActive {
+  border-bottom: 1px solid var(--border-soft);
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  padding: 11px 13px;
+  text-align: left;
+}
+
+.navItem {
+  background: transparent;
+  border-left: 3px solid transparent;
+}
+
+.navItem:hover {
+  background: #f6f7f9;
+}
+
+.navItemActive {
+  background: #f2f3fb;
+  border-left: 3px solid var(--primary);
+}
+
+.navKey {
+  color: var(--text-primary);
+  font-family: var(--font-mono), monospace;
+  font-size: 12.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.navMeta {
+  color: var(--text-muted);
+  font-size: 11px;
+  flex: none;
+}
+
+.addTable {
+  background: transparent;
+  border: 0;
+  color: var(--primary);
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 12px 13px;
+  text-align: left;
+}
+
+.addTable:hover {
+  background: #f6f7f9;
+}
+
+/* ── Editor pane ─────────────────────────────────────────────────────── */
+
+.editor {
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  min-width: 0;
+  padding: 20px;
+}
+
+.headRow {
+  align-items: center;
+  border-bottom: 1px solid var(--border-soft);
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+}
+
+.headActions {
+  align-items: center;
+  display: flex;
+  gap: 6px;
+}
+
+.moveBtn {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 12px;
+  height: 26px;
+  width: 26px;
+}
+
+.moveBtn:hover:not(:disabled) {
+  color: var(--text-primary);
+}
+
+.moveBtn:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.removeText {
+  background: none;
+  border: 0;
+  color: var(--accent-red);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.fieldGrid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 1fr 1fr;
+}
+
+.field {
+  display: block;
+  min-width: 0;
+}
+
+/* ── Columns editor ──────────────────────────────────────────────────── */
+
+.colHead {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  margin: 18px 0 8px;
+}
+
+.colTable {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+  overflow-x: auto;
+}
+
+.colHeaderRow,
+.colRow {
+  align-items: center;
+  display: grid;
+  gap: 8px;
+  grid-template-columns:
+    minmax(120px, 1.3fr) minmax(120px, 1.3fr) 96px
+    repeat(4, 40px) 92px;
+  min-width: 720px;
+}
+
+.colHeaderRow {
+  color: #6b7585;
+  font-family: var(--font-mono), monospace;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 0 2px;
+}
+
+.flagCol {
+  justify-self: center;
+  text-align: center;
+}
+
+input.flagCol {
+  accent-color: var(--primary);
+  height: 16px;
+  width: 16px;
+}
+
+.colActions {
+  display: flex;
+  gap: 4px;
+  justify-content: flex-end;
+}
+
+.removeCol {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--accent-red);
+  cursor: pointer;
+  font-size: 11px;
+  height: 26px;
+  width: 26px;
+}
+
+.removeCol:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+/* ── Feedback ────────────────────────────────────────────────────────── */
+
+.notice {
+  color: var(--accent-green);
+  font-size: 12px;
+  margin-top: 12px;
+}
+
+.warning {
+  background: #fdf6ec;
+  border: 1px solid #efd9b4;
+  border-radius: 8px;
+  color: #8a5a12;
+  font-size: 12px;
+  line-height: 1.5;
+  margin-top: 12px;
+  padding: 10px 12px;
+}
+
+.warning ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+
+/* ── Schema preview ──────────────────────────────────────────────────── */
+
+.previewBox {
+  border-top: 1px solid var(--border-soft);
+  margin-top: 22px;
+  padding-top: 16px;
+}
+
+.previewTitle {
+  align-items: center;
+  display: flex;
+  font-size: 13px;
+  font-weight: 600;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.previewTitle code {
+  font-family: var(--font-mono), monospace;
+  font-size: 11px;
+}
+
+.preview {
+  background: #f6f7f9;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono), monospace;
+  font-size: 11.5px;
+  line-height: 1.6;
+  max-height: 360px;
+  overflow: auto;
+  padding: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+@media (max-width: 900px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .tableNav {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .navItem,
+  .navItemActive {
+    border-bottom: none;
+    flex: 1 1 140px;
+  }
+}

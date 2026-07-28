@@ -33,14 +33,29 @@ the endpoints that actually exist in the code. For the intended/full backend des
 ### `ChatTurnEvent` (streamed lines)
 
 ```ts
+| { type: "status"; text: string }                // temporary Polish progress text
 | { type: "delta"; text: string }                 // incremental answer text
 | { type: "meta";                                 // one terminal metadata line
-    messageId: number; tables: string[];
+    messageId: number; userMessageId: number; tables: string[];
     rowCount: number | null; executionMs: number | null;
     responseMs: number | null; queryAuditId: number | null;
     tokensUsed: number | null; tokenUsage: TokenUsageMetadata | null }
-| { type: "error"; error: string }                // recoverable/terminal error
+| { type: "error"; error: string; messageId: number | null;
+    userMessageId: number;
+    errorCode: string; retryable: boolean; isRetried: boolean }
 ```
+
+`status` is ephemeral UI feedback and is never persisted as message content.
+Tool-loop narration is withheld. After exploration finishes, a separate
+tools-disabled synthesis call emits the final answer incrementally as `delta`.
+After the final delta, `status: "Zapisuję odpowiedź…"` remains visible until the
+assistant row is durable. A turn is complete only after one terminal `meta` or
+`error` line: `meta` confirms that the answer was saved; `error` may have
+`messageId: null` only when the database could not even store the failure record.
+Clients must not treat a completed-looking sequence of deltas or a bare stream
+close as a successful turn.
+Persisted `MessageDto` objects expose `errorCode`, `retryable`, `isRetried`, and
+`retryOfMessageId`. Internal `error_detail` is never serialized.
 
 ---
 
@@ -100,14 +115,46 @@ Toggle web search for the session. Body `{ enabled: boolean }`. Returns
 
 ### `POST /api/chat/sessions/:sessionId/messages`
 Send a user message and run an AI turn. Body `{ message: string(1–4000), stream?: boolean }`
-(`stream` defaults to `true`). Flow: auth → rate limit (**5/min, 200/day** per user)
-→ monthly AI token check → persist the user message (seeds the title from the first
-message) → run the orchestrator.
+(`stream` defaults to `true`). Flow: auth → persist the user message (seeds the
+title from the first message) → shared AI rate limit (**10/min, 200/day** per user)
+→ monthly AI token check → run the orchestrator.
+- The orchestrator allows up to four exploration/tool rounds and reserves a fifth
+  Anthropic call for tool-disabled final synthesis. Validator and execution
+  failures share a two-error SQL budget; an empty final synthesis is persisted as
+  retryable `CHAT_RESPONSE_INCOMPLETE`, never as a generic successful answer.
 - **Streaming (default):** NDJSON stream of `ChatTurnEvent`.
 - **`stream: false`:** `{ message: { content }, meta }` (buffered), or `502 { error }`
   on turn failure.
+- The composer remains locked through the temporary save status and unlocks only
+  after terminal `meta`/`error`. If success persistence fails, the visible draft
+  is replaced with retryable `CHAT_RESPONSE_NOT_SAVED`; the terminal error still
+  reaches the client with `messageId: null` if the database is unavailable.
+- Rate/token-limit rejections persist a linked assistant error, so the complete
+  rejected turn remains visible after reloading the session.
 - `400` invalid body · `404` session not found · `429` rate limited or
   `{ code: "AI_MONTHLY_TOKEN_LIMIT_EXCEEDED", error }`.
+
+Unexpected operational failures are stored as assistant error messages whenever
+the database is available. A `502` returns the same public error fields as the
+stream event.
+
+### `POST /api/chat/sessions/:sessionId/messages/:messageId/retry`
+Retry one unresolved, retryable assistant error. The original user message is
+reused and is not inserted again. Normal messages and quick actions are both
+supported from the private retry context stored with the failure.
+- Success streams the replacement answer as `ChatTurnEvent` and marks the old
+  error `isRetried=true`.
+- Another operational failure persists a linked replacement error.
+- `404` invalid session/message · `409` non-retryable, already retried, concurrent
+  retry, or stale quick-action configuration · `429` rate/token limit.
+
+### `POST /api/chat/sessions/:sessionId/messages/redo`
+Regenerate the answer to a specific persisted user message. Body
+`{ userMessageId: number }`. If its assistant answer already exists, it is marked
+as replaced and the newly streamed answer takes its place in conversation history.
+- Success streams the replacement answer as `ChatTurnEvent`.
+- `400` invalid body · `404` invalid session/message · `409` concurrent redo · `429`
+  rate/token limit.
 
 ---
 
@@ -132,7 +179,10 @@ Light rate limit (60/min per user — called per keystroke).
 Run an action into a chat session. Body
 `{ session_id: uuid, input?: string(≤500) | null, stream?: boolean }` (`stream`
 defaults to `true`). Loads the action by `key`; same rate limit + token check as
-chat. Two paths:
+chat. After validating the action/session and resolving its input, the user
+message is persisted exactly once before Redis, usage, row-source, or AI calls.
+Any later failure persists a linked assistant error, so the complete turn remains
+visible after reload. Two paths:
 - **`row_from_table`** — deterministic: fetches the chosen row by `input` (its id)
   and the AI only composes the answer (no AI-generated SQL). `400` when `input` is
   empty/invalid; `502` when the row fetch fails.
@@ -151,17 +201,18 @@ buffered `{ message: { content }, meta }` when `stream: false`.
 
 Manual ERP data browser. Any signed-in user (**not** admin-only). Wire shapes in
 [`lib/api/data-types.ts`](../../lib/api/data-types.ts); the exposed tables + column
-capabilities are configured in
-[`lib/data-browser/tables-config.ts`](../../lib/data-browser/tables-config.ts). No
-client SQL — the backend validates every identifier against the static config and
-the live `public` schema and builds a parametrized `SELECT` itself.
+capabilities come from the DB-backed ERP tables model
+([`lib/erp-schema/*`](../../lib/erp-schema), edited in admin → **Schemat bazy**),
+derived via `getDataTables()`. No client SQL — the backend validates every
+identifier against that config and the live `public` schema and builds a
+parametrized `SELECT` itself.
 
 ### `GET /api/data/schema`
 Table + column config for the browser UI → `{ tables: DataSchemaTable[] }`. Each
 table has `key`, `label`, `description`, `primaryKey` (single-column, from live
 introspection, or `null`), and `columns[]` of
 `{ name, label, type: "text"|"integer"|"numeric"|"date", searchable, filterable, sortable }`.
-The static config is reconciled with the live schema on each request (missing
+The config is reconciled with the live schema on each request (missing
 tables/columns are dropped). Runs no ERP query, so nothing is audited.
 - `401` when unauthenticated.
 
@@ -215,8 +266,8 @@ One active report (params to build the run form) → `{ report: AiReportPublicDt
 - `401` · `404` unknown or inactive.
 
 ### `POST /api/ai-reports/:id/execute`
-Run a report. Body `{ input_params: Record<string,string> }`. Flow: rate limit (shared
-chat keys, **5/min · 200/day**) → monthly AI token check → load active report → validate
+Run a report. Body `{ input_params: Record<string,string> }`. Flow: shared AI rate
+limit (**10/min · 200/day**) → monthly AI token check → load active report → validate
 required `input_params` → agentic run (`execute_sql` + BizRaport + Google rating + web search per
 `model_config`; SQL audited `source='ai_report'`) → the model returns JSON via the
 `submit_report` tool → save `ai_report_executions` → `{ executionId, output_data,
@@ -259,13 +310,14 @@ Every report (draft or active), newest first → `{ reports: AdminAiReportDto[] 
 
 #### `POST /api/admin/ai-reports/generate`
 Generate a report config from a plain-language brief and save it as a **draft**
-(`isActive=false`). Body `{ description: string(1–2000) }`. The generation model
+(`isActive=false`). Body `{ description: string(1–2000) }`. Uses the shared AI
+rate limit (**10/min · 200/day** per admin). The generation model
 (`ANTHROPIC_CHAT_MODEL`) returns `name`, `systemPrompt`, `outputSchema`, `htmlWidget`,
 `inputParams`, `modelConfig` via a forced tool call
 ([`lib/ai/report-generator.ts`](../../lib/ai/report-generator.ts)); the generator may
 wire ERP SQL, BizRaport, Google rating, and web search into `modelConfig`. Returns
 `201 { report: AdminAiReportDto }`.
-- `400` invalid body · `429` monthly AI token limit (`{ code: "AI_MONTHLY_TOKEN_LIMIT_EXCEEDED" }`)
+- `400` invalid body · `429` request or monthly AI token limit
   · `502` generation failed.
 
 #### `PATCH /api/admin/ai-reports/:id`
@@ -277,6 +329,56 @@ Edit fields and/or activate. Body = any subset of
 #### `DELETE /api/admin/ai-reports/:id`
 Delete a report. Returns `{ ok: true }`.
 - `404` not found.
+
+### Prompty systemowe — `/api/admin/prompts`
+Editable AI prompt texts, stored versioned in `chatbot.system_prompts` (newest
+version per key is live). Keys and shipped defaults are the registry in
+[`lib/ai/prompt-defaults.ts`](../../lib/ai/prompt-defaults.ts); wire shapes in
+[`lib/api/prompts-types.ts`](../../lib/api/prompts-types.ts). The chat/data paths
+read these through a 60s stale-while-revalidate cache
+([`lib/ai/prompt-store.ts`](../../lib/ai/prompt-store.ts)) that falls back to the
+compiled-in defaults if the DB is unavailable.
+
+#### `GET /api/admin/prompts`
+Every editable prompt with its live text → `{ prompts: AdminPromptDto[] }`. A key
+never edited since deploy has `version: null` and the compiled-in default as
+`content`.
+
+#### `GET /api/admin/prompts/:key`
+One prompt plus its full version history (newest first) →
+`{ prompt: AdminPromptDto, versions: PromptVersionDto[] }`.
+- `404` unknown `key` (not in the registry).
+
+#### `PUT /api/admin/prompts/:key`
+Saves `{ content }` as the next version, which becomes live (also used for
+revert — the client resends an older version's text). Invalidates the prompt
+cache on this instance → `{ prompt: AdminPromptDto }`.
+- `400` empty or >20000 chars.
+- `404` unknown `key`.
+- `409` a concurrent save took the same version — refresh and retry.
+
+### Schemat bazy (ERP tables model) — `/api/admin/erp-tables`
+The one DB-backed source of truth for the ERP tables, stored in
+`chatbot.erp_tables` + `chatbot.erp_columns` and edited in admin → **Schemat
+bazy**. It feeds BOTH the AI schema prompt (`{{ERP_SCHEMA}}`) and the Dane
+browser, via a 60s stale-while-revalidate cache
+([`lib/erp-schema/store.ts`](../../lib/erp-schema/store.ts)) that falls back to
+`DEFAULT_ERP_MODEL` ([`lib/erp-schema/model.ts`](../../lib/erp-schema/model.ts))
+if the DB is unavailable. Wire shapes in
+[`lib/api/erp-tables-types.ts`](../../lib/api/erp-tables-types.ts). **Not
+versioned** — edits are in-place full replacements. Read-only SQL safety does not
+depend on it (the executable allowlist is derived live from `public`).
+
+#### `GET /api/admin/erp-tables`
+The current model → `{ tables: ErpTableModel[] }` (falls back to the compiled-in
+default when unseeded).
+
+#### `PUT /api/admin/erp-tables`
+Replaces the whole model (`{ tables }`, validated by `erpModelSaveSchema`) in one
+transaction, invalidates the cache, and cross-checks names against the live
+`public` schema → `{ tables, warnings }`. Unknown table/column names are
+non-blocking `warnings` (the browser drops them; the model keeps them), not errors.
+- `400` invalid model, duplicate table key, or duplicate column in a table.
 
 ### `GET /api/admin/schema`
 Public (ERP) tables with their columns and primary key, for the quick-action
@@ -312,6 +414,7 @@ GET    /api/chat/sessions/:sessionId
 PATCH  /api/chat/sessions/:sessionId
 PATCH  /api/chat/sessions/:sessionId/web-search
 POST   /api/chat/sessions/:sessionId/messages          # NDJSON stream
+POST   /api/chat/sessions/:sessionId/messages/:messageId/retry # NDJSON stream
 
 GET    /api/quick-actions
 GET    /api/quick-actions/:key/rows
@@ -336,6 +439,13 @@ GET    /api/admin/ai-reports
 POST   /api/admin/ai-reports/generate
 PATCH  /api/admin/ai-reports/:id
 DELETE /api/admin/ai-reports/:id
+
+GET    /api/admin/prompts
+GET    /api/admin/prompts/:key
+PUT    /api/admin/prompts/:key
+
+GET    /api/admin/erp-tables
+PUT    /api/admin/erp-tables
 
 GET    /api/admin/schema
 GET    /api/admin/overview

@@ -29,6 +29,14 @@ export interface UiMessage {
   metrics?: UiMetrics | null;
   /** True while the answer is still streaming in. */
   pending?: boolean;
+  /** Ephemeral progress copy; never loaded from or saved to the database. */
+  workingStatus?: string | null;
+  /** Keeps the status mounted briefly while its exit animation runs. */
+  workingStatusLeaving?: boolean;
+  /** Persisted assistant failure; rendered as a dedicated alert card. */
+  errorCode?: string | null;
+  retryable?: boolean;
+  isRetried?: boolean;
 }
 
 export interface UiSession {

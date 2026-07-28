@@ -1,9 +1,11 @@
 import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth/current-user";
+import { isDatabaseUnavailableError } from "@/lib/db/retry-read";
 import type { AppUser } from "@/lib/db/schema";
 import type { CurrentUser } from "@/lib/mock-data/types";
 import { AppShell } from "./AppShell";
+import { ConnectionUnavailable } from "./ConnectionUnavailable";
 
 /**
  * Builds the sidebar view-model from the signed-in user. The DB has no `role`
@@ -35,7 +37,16 @@ export default async function InternalAppLayout({
   children: ReactNode;
 }) {
   // Gate every /app/* route: without a valid session, send to login.
-  const user = await getCurrentUser();
+  let user: AppUser | null;
+  try {
+    user = await getCurrentUser();
+  } catch (error) {
+    if (isDatabaseUnavailableError(error)) {
+      return <ConnectionUnavailable />;
+    }
+    throw error;
+  }
+
   if (!user) {
     redirect("/login");
   }

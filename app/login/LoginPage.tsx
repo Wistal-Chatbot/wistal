@@ -19,7 +19,12 @@ const CODE_LENGTH = 6;
 const INITIAL_COUNTDOWN_SECONDS = 5 * 60;
 
 type Step = "email" | "code";
-type SubmitState = "idle" | "submitting";
+type SubmitState =
+  | "idle"
+  | "sending"
+  | "resending"
+  | "verifying"
+  | "redirecting";
 
 type LoginPageProps = {
   allowsExternalEmails: boolean;
@@ -56,7 +61,7 @@ export function LoginPage({ allowsExternalEmails }: LoginPageProps) {
 
   const normalizedEmail = useMemo(() => normalizeEmail(email), [email]);
   const fullCode = code.join("");
-  const isSubmitting = state === "submitting";
+  const isSubmitting = state !== "idle";
 
   useEffect(() => {
     if (step !== "code") {
@@ -100,7 +105,7 @@ export function LoginPage({ allowsExternalEmails }: LoginPageProps) {
       return;
     }
 
-    setState("submitting");
+    setState("sending");
 
     try {
       await requestOtp();
@@ -130,7 +135,7 @@ export function LoginPage({ allowsExternalEmails }: LoginPageProps) {
       return;
     }
 
-    setState("submitting");
+    setState("verifying");
 
     try {
       const response = await fetch("/api/auth/verify-otp", {
@@ -143,6 +148,7 @@ export function LoginPage({ allowsExternalEmails }: LoginPageProps) {
         throw new Error(await readError(response));
       }
 
+      setState("redirecting");
       router.push("/app/chat");
       router.refresh();
     } catch (verifyError) {
@@ -151,7 +157,6 @@ export function LoginPage({ allowsExternalEmails }: LoginPageProps) {
           ? verifyError.message
           : "Niepoprawny albo wygasły kod.",
       );
-    } finally {
       setState("idle");
     }
   }
@@ -199,7 +204,7 @@ export function LoginPage({ allowsExternalEmails }: LoginPageProps) {
   async function resendCode() {
     setError("");
     setInfo("");
-    setState("submitting");
+    setState("resending");
 
     try {
       await requestOtp();
@@ -269,6 +274,7 @@ export function LoginPage({ allowsExternalEmails }: LoginPageProps) {
                 className={styles.input}
                 id="email"
                 inputMode="email"
+                disabled={isSubmitting}
                 onChange={(event: ChangeEvent<HTMLInputElement>) => {
                   setEmail(event.target.value);
                   setError("");
@@ -283,7 +289,7 @@ export function LoginPage({ allowsExternalEmails }: LoginPageProps) {
                 disabled={isSubmitting}
                 type="submit"
               >
-                {isSubmitting ? "Wysyłanie kodu..." : "Wyślij kod jednorazowy"}
+                {state === "sending" ? "Wysyłanie kodu…" : "Wyślij kod jednorazowy"}
               </button>
               <p className={styles.domainNote}>
                 {allowsExternalEmails
@@ -305,6 +311,7 @@ export function LoginPage({ allowsExternalEmails }: LoginPageProps) {
                     autoComplete={index === 0 ? "one-time-code" : "off"}
                     className={styles.codeInput}
                     inputMode="numeric"
+                    disabled={isSubmitting}
                     key={index}
                     maxLength={1}
                     onChange={(event) => updateCode(index, event.target.value)}
@@ -333,12 +340,16 @@ export function LoginPage({ allowsExternalEmails }: LoginPageProps) {
                 disabled={isSubmitting}
                 type="submit"
               >
-                {isSubmitting ? "Logowanie..." : "Zaloguj się"}
+                {state === "redirecting"
+                  ? "Otwieranie panelu…"
+                  : state === "verifying"
+                    ? "Weryfikowanie kodu…"
+                    : "Zaloguj się"}
               </button>
 
               <div className={styles.secondaryActions}>
                 <button disabled={isSubmitting} onClick={resendCode} type="button">
-                  Wyślij kod ponownie
+                  {state === "resending" ? "Wysyłanie…" : "Wyślij kod ponownie"}
                 </button>
                 <button disabled={isSubmitting} onClick={changeEmail} type="button">
                   Zmień adres e-mail

@@ -79,6 +79,10 @@ export function serializeMessage(row: ChatMessage): MessageDto {
     content: row.content,
     sqlGenerated: row.sqlGenerated,
     rowCount: row.rowCount,
+    errorCode: row.errorCode,
+    retryable: row.retryable,
+    isRetried: row.isRetried,
+    retryOfMessageId: row.retryOfMessageId,
     metadata: readMessageMetadata(row.metadata),
     createdAt: row.createdAt.toISOString(),
   };

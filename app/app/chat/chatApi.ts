@@ -58,9 +58,11 @@ export async function createSession(body?: {
 
 export async function fetchSession(
   sessionId: string,
+  signal?: AbortSignal,
 ): Promise<{ session: SessionDto; messages: MessageDto[] }> {
   return apiFetch<{ session: SessionDto; messages: MessageDto[] }>(
     `/api/chat/sessions/${sessionId}`,
+    { signal },
   );
 }
 
@@ -111,6 +113,7 @@ export async function fetchQuickActionRows(
 
 export interface StreamMeta {
   messageId: number;
+  userMessageId: number;
   tables: string[];
   rowCount: number | null;
   executionMs: number | null;
@@ -121,71 +124,176 @@ export interface StreamMeta {
 }
 
 export interface StreamHandlers {
+  onStatus: (text: string) => void;
   onDelta: (text: string) => void;
   onMeta: (
     source: UiSource | null,
     metrics: UiMetrics | null,
     meta: StreamMeta,
   ) => void;
-  onError: (message: string) => void;
+  onError: (error: StreamError) => void;
 }
+
+export interface StreamError {
+  message: string;
+  messageId: number | null;
+  userMessageId: number | null;
+  errorCode: string | null;
+  retryable: boolean;
+  isRetried: boolean;
+}
+
+type TurnStreamFrameType = "status" | "delta" | "meta" | "error" | null;
 
 /**
  * Consumes an NDJSON turn stream (from the chat or quick-action endpoint),
- * dispatching `delta` / `meta` / `error` frames to the handlers. Both endpoints
- * emit the same `ChatTurnEvent` frames, so the plumbing is shared.
+ * dispatching `status` / `delta` / `meta` / `error` frames to the handlers.
+ * Both endpoints emit the same `ChatTurnEvent` frames, so the plumbing is shared.
  */
-async function pumpTurnStream(
+export function dispatchTurnStreamLine(
+  line: string,
+  handlers: StreamHandlers,
+): TurnStreamFrameType {
+  const trimmed = line.trim();
+  if (!trimmed) return null;
+  let event: {
+    type?: string;
+    text?: string;
+    error?: string;
+    messageId?: number | null;
+    userMessageId?: number | null;
+    errorCode?: string;
+    retryable?: boolean;
+    isRetried?: boolean;
+    tables?: string[];
+    rowCount?: number | null;
+    executionMs?: number | null;
+    responseMs?: number | null;
+    queryAuditId?: number | null;
+    tokensUsed?: number | null;
+    tokenUsage?: TokenUsageMetadata | null;
+  };
+  try {
+    event = JSON.parse(trimmed);
+  } catch {
+    return null;
+  }
+  if (event.type === "status" && typeof event.text === "string") {
+    handlers.onStatus(event.text);
+    return "status";
+  } else if (event.type === "delta" && typeof event.text === "string") {
+    handlers.onDelta(event.text);
+    return "delta";
+  } else if (
+    event.type === "meta" &&
+    typeof event.messageId === "number" &&
+    event.messageId > 0 &&
+    typeof event.userMessageId === "number" &&
+    event.userMessageId > 0
+  ) {
+    const meta: StreamMeta = {
+      messageId: event.messageId,
+      userMessageId: event.userMessageId,
+      tables: event.tables ?? [],
+      rowCount: event.rowCount ?? null,
+      executionMs: event.executionMs ?? null,
+      responseMs: event.responseMs ?? null,
+      queryAuditId: event.queryAuditId ?? null,
+      tokensUsed: event.tokensUsed ?? null,
+      tokenUsage: event.tokenUsage ?? null,
+    };
+    handlers.onMeta(
+      toSource(meta.tables, meta.rowCount),
+      toMetrics(meta.responseMs, meta.tokensUsed),
+      meta,
+    );
+    return "meta";
+  } else if (event.type === "error" && typeof event.error === "string") {
+    handlers.onError({
+      message: event.error,
+      messageId:
+        typeof event.messageId === "number" ? event.messageId : null,
+      userMessageId:
+        typeof event.userMessageId === "number" ? event.userMessageId : null,
+      errorCode:
+        typeof event.errorCode === "string" ? event.errorCode : null,
+      retryable: event.retryable === true,
+      isRetried: event.isRetried === true,
+    });
+    return "error";
+  }
+  return null;
+}
+
+export async function pumpTurnStream(
   res: Response,
   handlers: StreamHandlers,
 ): Promise<void> {
   if (!res.ok || !res.body) {
-    let msg = "Wystąpił błąd. Spróbuj ponownie.";
+    const serverFailure = res.status >= 500 || (res.ok && !res.body);
+    let error: StreamError = {
+      message: "Wystąpił błąd. Spróbuj ponownie.",
+      messageId: null,
+      userMessageId: null,
+      errorCode: serverFailure ? "CHAT_SERVER_ERROR" : null,
+      retryable: serverFailure,
+      isRetried: false,
+    };
     try {
-      const data = (await res.json()) as { error?: string };
-      if (data?.error) msg = data.error;
+      const data = (await res.json()) as {
+        error?: string;
+        messageId?: number;
+        userMessageId?: number;
+        errorCode?: string;
+        code?: string;
+        retryable?: boolean;
+        isRetried?: boolean;
+      };
+      error = {
+        message: data.error ?? error.message,
+        messageId:
+          typeof data.messageId === "number" ? data.messageId : null,
+        userMessageId:
+          typeof data.userMessageId === "number" ? data.userMessageId : null,
+        errorCode:
+          typeof data.errorCode === "string"
+            ? data.errorCode
+            : typeof data.code === "string"
+              ? data.code
+              : "CHAT_REQUEST_FAILED",
+        retryable: data.retryable === true || serverFailure,
+        isRetried: data.isRetried === true,
+      };
     } catch {
       // keep generic message
     }
-    handlers.onError(msg);
+    handlers.onError(error);
     return;
   }
-
-  const handleLine = (line: string) => {
-    const trimmed = line.trim();
-    if (!trimmed) return;
-    let event: { type?: string; text?: string; error?: string } & Partial<StreamMeta>;
-    try {
-      event = JSON.parse(trimmed);
-    } catch {
-      return;
-    }
-    if (event.type === "delta" && typeof event.text === "string") {
-      handlers.onDelta(event.text);
-    } else if (event.type === "meta") {
-      const meta: StreamMeta = {
-        messageId: event.messageId ?? 0,
-        tables: event.tables ?? [],
-        rowCount: event.rowCount ?? null,
-        executionMs: event.executionMs ?? null,
-        responseMs: event.responseMs ?? null,
-        queryAuditId: event.queryAuditId ?? null,
-        tokensUsed: event.tokensUsed ?? null,
-        tokenUsage: event.tokenUsage ?? null,
-      };
-      handlers.onMeta(
-        toSource(meta.tables, meta.rowCount),
-        toMetrics(meta.responseMs, meta.tokensUsed),
-        meta,
-      );
-    } else if (event.type === "error" && typeof event.error === "string") {
-      handlers.onError(event.error);
-    }
-  };
 
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+  let terminalReceived = false;
+  const terminalHandlers: StreamHandlers = {
+    ...handlers,
+    onMeta: (source, metrics, meta) => {
+      terminalReceived = true;
+      handlers.onMeta(source, metrics, meta);
+    },
+    onError: (error) => {
+      terminalReceived = true;
+      handlers.onError(error);
+    },
+  };
+
+  const cancelAfterTerminal = async () => {
+    try {
+      await reader.cancel();
+    } catch {
+      // The terminal event was already handled; transport cleanup is best effort.
+    }
+  };
 
   while (true) {
     const { done, value } = await reader.read();
@@ -193,12 +301,29 @@ async function pumpTurnStream(
     buffer += decoder.decode(value, { stream: true });
     let nl: number;
     while ((nl = buffer.indexOf("\n")) >= 0) {
-      handleLine(buffer.slice(0, nl));
+      dispatchTurnStreamLine(buffer.slice(0, nl), terminalHandlers);
       buffer = buffer.slice(nl + 1);
+      if (terminalReceived) {
+        await cancelAfterTerminal();
+        return;
+      }
     }
   }
   buffer += decoder.decode();
-  if (buffer.trim()) handleLine(buffer);
+  if (buffer.trim()) {
+    dispatchTurnStreamLine(buffer, terminalHandlers);
+  }
+  if (terminalReceived) return;
+
+  handlers.onError({
+    message:
+      "Połączenie zakończyło się przed zapisaniem odpowiedzi. Spróbuj ponownie.",
+    messageId: null,
+    userMessageId: null,
+    errorCode: "CHAT_STREAM_INCOMPLETE",
+    retryable: true,
+    isRetried: false,
+  });
 }
 
 /** Sends a chat message and streams the orchestrator's answer. */
@@ -214,6 +339,42 @@ export async function streamMessage(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ message, stream: true }),
   });
+  return pumpTurnStream(res, handlers);
+}
+
+export async function retryMessage(
+  sessionId: string,
+  messageId: string,
+  handlers: StreamHandlers,
+): Promise<void> {
+  const res = await fetch(
+    `/api/chat/sessions/${sessionId}/messages/${messageId}/retry`,
+    {
+      method: "POST",
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+    },
+  );
+  return pumpTurnStream(res, handlers);
+}
+
+/** Regenerates the latest turn without inserting the user message again. */
+export async function redoLatestMessage(
+  sessionId: string,
+  userMessageId: number,
+  handlers: StreamHandlers,
+): Promise<void> {
+  const res = await fetch(
+    `/api/chat/sessions/${sessionId}/messages/redo`,
+    {
+      method: "POST",
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userMessageId }),
+    },
+  );
   return pumpTurnStream(res, handlers);
 }
 
@@ -326,12 +487,19 @@ export function dtoToUiMessage(dto: MessageDto): UiMessage {
     content: dto.content,
     source: toSource(dto.metadata.tables, dto.rowCount),
     metrics: toMetrics(dto.metadata.responseMs, dto.metadata.tokensUsed),
+    errorCode: dto.errorCode,
+    retryable: dto.retryable,
+    isRetried: dto.isRetried,
   };
 }
 
 /** Maps persisted messages to UI messages, keeping only user/assistant turns. */
 export function messagesToUi(dtos: MessageDto[]): UiMessage[] {
   return dtos
-    .filter((m) => m.messageType === "user" || m.messageType === "assistant")
+    .filter(
+      (m) =>
+        (m.messageType === "user" || m.messageType === "assistant") &&
+        !m.isRetried,
+    )
     .map(dtoToUiMessage);
 }

@@ -1,9 +1,8 @@
 import "server-only";
 
 import type { DataSchemaResponse, DataSchemaTable } from "@/lib/api/data-types";
+import { getDataTables } from "@/lib/erp-schema/store";
 import { getPublicSchema } from "@/lib/sql/introspection";
-
-import { DATA_TABLES } from "./tables-config";
 
 /**
  * Builds the `GET /api/data/schema` payload: the static browser config (labels +
@@ -13,11 +12,14 @@ import { DATA_TABLES } from "./tables-config";
  * by the query builder), and each table gets its live single-column primary key.
  */
 export async function getDataBrowserSchema(): Promise<DataSchemaResponse> {
-  const live = await getPublicSchema();
+  const [live, dataTables] = await Promise.all([
+    getPublicSchema(),
+    getDataTables(),
+  ]);
   const liveByTable = new Map(live.map((t) => [t.table.toLowerCase(), t]));
 
   const tables: DataSchemaTable[] = [];
-  for (const cfg of DATA_TABLES) {
+  for (const cfg of dataTables) {
     const liveTable = liveByTable.get(cfg.key.toLowerCase());
     if (!liveTable) continue; // table not present / not in the allowlist
 

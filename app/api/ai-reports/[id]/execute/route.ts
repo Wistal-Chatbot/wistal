@@ -3,8 +3,8 @@ import { z } from "zod";
 import { aiReportExecuteSchema } from "@/lib/api/ai-reports-types";
 import { runReportExecution } from "@/lib/ai/report-executor";
 import { checkMonthlyTokenLimit } from "@/lib/ai/token-usage";
+import { checkAiRequestRateLimit } from "@/lib/ai/request-rate-limit";
 import { getCurrentUser } from "@/lib/auth/current-user";
-import { checkRateLimit } from "@/lib/auth/rate-limit";
 import { createAiReportExecution, getAiReportById } from "@/lib/db/queries";
 import { log } from "@/lib/log";
 
@@ -61,12 +61,7 @@ export async function POST(
   }
   const inputParams = parsed.data.input_params;
 
-  // Shared chat rate limit (5/min, 200/day per user).
-  const [perMinute, perDay] = await Promise.all([
-    checkRateLimit({ namespace: "chat", key: `user:${user.id}:minute`, limit: 5, windowSeconds: 60 }),
-    checkRateLimit({ namespace: "chat", key: `user:${user.id}:day`, limit: 200, windowSeconds: 24 * 60 * 60 }),
-  ]);
-  const limited = !perMinute.allowed ? perMinute : !perDay.allowed ? perDay : null;
+  const limited = await checkAiRequestRateLimit(user.id);
   if (limited) {
     return Response.json(
       { error: "Zbyt wiele zapytań. Spróbuj ponownie później." },

@@ -23,6 +23,115 @@
   text-align: center;
 }
 
+.executionSkeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.skeletonHeader {
+  align-items: flex-start;
+  display: flex;
+  justify-content: space-between;
+}
+
+.skeletonHeader > div {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(420px, 58%);
+}
+
+.skeletonKicker,
+.skeletonTitle,
+.skeletonAction,
+.skeletonResult span,
+.skeletonMeta span {
+  background:
+    linear-gradient(
+      100deg,
+      transparent 30%,
+      rgba(255, 255, 255, 0.84) 50%,
+      transparent 70%
+    ),
+    #e2e7ed;
+  background-size: 220% 100%;
+  border-radius: 5px;
+  display: block;
+  animation: executionSkeletonShimmer 1.8s ease-in-out infinite;
+}
+
+.skeletonKicker {
+  height: 10px;
+  width: 110px;
+}
+
+.skeletonTitle {
+  height: 24px;
+  width: 74%;
+}
+
+.skeletonAction {
+  border-radius: 8px;
+  height: 38px;
+  width: 150px;
+}
+
+.skeletonLayout {
+  align-items: stretch;
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(0, 1fr) 320px;
+}
+
+.skeletonResult,
+.skeletonMeta {
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px;
+}
+
+.skeletonResult {
+  min-height: 390px;
+}
+
+.skeletonMeta {
+  min-height: 300px;
+  padding: 18px;
+}
+
+.skeletonResult span {
+  height: 14px;
+}
+
+.skeletonResult span:first-child {
+  height: 24px;
+  width: 48%;
+}
+
+.skeletonResult span:nth-child(2) {
+  width: 92%;
+}
+
+.skeletonResult span:nth-child(3) {
+  width: 76%;
+}
+
+.skeletonResult span:last-child {
+  height: 180px;
+  margin-top: 14px;
+  width: 100%;
+}
+
+.skeletonMeta span {
+  height: 38px;
+  width: 100%;
+}
+
 .header {
   align-items: flex-start;
   display: flex;
@@ -197,8 +306,45 @@
   color: #b4402e;
 }
 
+.srOnly {
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  padding: 0;
+  position: absolute;
+  width: 1px;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
+@keyframes executionSkeletonShimmer {
+  0%,
+  20% {
+    background-position: 120% 0;
+  }
+
+  80%,
+  100% {
+    background-position: -120% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeletonKicker,
+  .skeletonTitle,
+  .skeletonAction,
+  .skeletonResult span,
+  .skeletonMeta span {
+    animation: none;
+  }
+}
+
 @media (max-width: 920px) {
   .layout {
+    grid-template-columns: 1fr;
+  }
+
+  .skeletonLayout {
     grid-template-columns: 1fr;
   }
 }

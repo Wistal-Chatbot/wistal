@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   DataQueryRequest,
   DataSchemaColumn,
@@ -78,6 +78,67 @@ function preferredTableKey(tables: DataSchemaTable[]): string {
   return tables.find((table) => table.key === "towary")?.key ?? tables[0]?.key ?? "";
 }
 
+function escapeCsvCell(value: string): string {
+  return `"${value.replaceAll('"', '""')}"`;
+}
+
+function buildCsv(table: DataSchemaTable, rows: DataRow[]): string {
+  const header = table.columns.map((column) => escapeCsvCell(column.label)).join(";");
+  const body = rows.map((row) =>
+    table.columns
+      .map((column) => escapeCsvCell(formatCellValue(row[column.name], column)))
+      .join(";"),
+  );
+
+  return `\uFEFF${[header, ...body].join("\r\n")}`;
+}
+
+function DataSkeletonRows({ columnCount }: { columnCount: number }) {
+  return Array.from({ length: 6 }, (_, rowIndex) => (
+    <tr key={rowIndex} aria-hidden="true">
+      {Array.from({ length: columnCount }, (__, columnIndex) => (
+        <td className={styles.skeletonCell} key={columnIndex}>
+          <span
+            className={
+              (rowIndex + columnIndex) % 3 === 0
+                ? styles.skeletonBarShort
+                : styles.skeletonBar
+            }
+          />
+        </td>
+      ))}
+    </tr>
+  ));
+}
+
+function DataSkeletonTable() {
+  const columnCount = 6;
+  return (
+    <div
+      className={styles.tableScroll}
+      role="status"
+      aria-busy="true"
+      aria-live="polite"
+    >
+      <span className={styles.srOnly}>Ładowanie tabel i danych…</span>
+      <table className={styles.table}>
+        <thead>
+          <tr aria-hidden="true">
+            {Array.from({ length: columnCount }, (_, index) => (
+              <th className={styles.th} key={index}>
+                <span className={styles.skeletonHeaderBar} />
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          <DataSkeletonRows columnCount={columnCount} />
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export function DataBrowser() {
   const router = useRouter();
   const [tables, setTables] = useState<DataSchemaTable[]>([]);
@@ -96,11 +157,25 @@ export function DataBrowser() {
   });
   const [menuOpen, setMenuOpen] = useState(false);
   const [detail, setDetail] = useState<{ table: DataSchemaTable; record: DataRow } | null>(null);
+  const [openingChat, setOpeningChat] = useState(false);
+  const [selectedRowIndexes, setSelectedRowIndexes] = useState<Set<number>>(
+    () => new Set(),
+  );
+  const selectAllCheckboxRef = useRef<HTMLInputElement>(null);
 
   const table = useMemo(
     () => tables.find((item) => item.key === query.tableKey) ?? null,
     [query.tableKey, tables],
   );
+  const selectedRowCount = selectedRowIndexes.size;
+  const allRowsSelected = rows.length > 0 && selectedRowCount === rows.length;
+
+  useEffect(() => {
+    if (selectAllCheckboxRef.current) {
+      selectAllCheckboxRef.current.indeterminate =
+        selectedRowCount > 0 && selectedRowCount < rows.length;
+    }
+  }, [rows.length, selectedRowCount]);
 
   useEffect(() => {
     let cancelled = false;
@@ -135,6 +210,7 @@ export function DataBrowser() {
 
     const timeout = window.setTimeout(() => {
       setRows([]);
+      setSelectedRowIndexes(new Set());
       setHasMore(false);
       setDetail(null);
       if (query.tableKey) setRowState("loading");
@@ -189,6 +265,7 @@ export function DataBrowser() {
 
     setSearch("");
     setRows([]);
+    setSelectedRowIndexes(new Set());
     setHasMore(false);
     setDetail(null);
     setRowState("loading");
@@ -199,6 +276,7 @@ export function DataBrowser() {
     if (!column.sortable) return;
 
     setRows([]);
+    setSelectedRowIndexes(new Set());
     setHasMore(false);
     setDetail(null);
     setRowState("loading");
@@ -226,6 +304,7 @@ export function DataBrowser() {
   function retrySchema() {
     setSchemaState("loading");
     setRows([]);
+    setSelectedRowIndexes(new Set());
     setHasMore(false);
     setDetail(null);
     setRowState("idle");
@@ -237,13 +316,54 @@ export function DataBrowser() {
     setRowRefresh((value) => value + 1);
   }
 
+  function toggleRowSelection(index: number) {
+    setSelectedRowIndexes((current) => {
+      const next = new Set(current);
+      if (next.has(index)) {
+        next.delete(index);
+      } else {
+        next.add(index);
+      }
+      return next;
+    });
+  }
+
+  function toggleAllRows() {
+    if (allRowsSelected) {
+      setSelectedRowIndexes(new Set());
+      return;
+    }
+
+    setSelectedRowIndexes(new Set(rows.map((_, index) => index)));
+  }
+
+  function exportSelectedRows() {
+    if (!table || selectedRowCount === 0) return;
+
+    const selectedRows = rows.filter((_, index) => selectedRowIndexes.has(index));
+    const fileName = `dane-${table.key}-${new Date().toISOString().slice(0, 10)}.csv`;
+    const blob = new Blob([buildCsv(table, selectedRows)], {
+      type: "text/csv;charset=utf-8",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+
+    link.href = url;
+    link.download = fileName;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
+
   function askAboutRecord() {
-    if (!detail) return;
+    if (!detail || openingChat) return;
     const firstColumn = detail.table.columns[0];
     const title = firstColumn
       ? formatCellValue(detail.record[firstColumn.name], firstColumn)
       : detail.table.label;
     const prompt = `Przeanalizuj rekord ${title} z tabeli ${detail.table.label}. Podaj kluczowe informacje, powiązania i ewentualne ryzyka.`;
+    setOpeningChat(true);
     router.push(`/app/chat?prompt=${encodeURIComponent(prompt)}`);
   }
 
@@ -323,11 +443,20 @@ export function DataBrowser() {
 
             <div className={styles.spacer} />
 
+            <div className={styles.selectedCount} aria-live="polite">
+              Zaznaczono: <strong>{selectedRowCount}</strong>
+            </div>
+
             <button
               type="button"
               className={styles.exportButton}
-              disabled
-              title="Eksport CSV zostanie dodany w kolejnym kroku"
+              disabled={selectedRowCount === 0}
+              title={
+                selectedRowCount === 0
+                  ? "Zaznacz co najmniej jeden wiersz"
+                  : `Eksportuj ${selectedRowCount} zaznaczonych wierszy`
+              }
+              onClick={exportSelectedRows}
             >
               <DownloadIcon size={15} />
               Eksport CSV
@@ -347,13 +476,27 @@ export function DataBrowser() {
             </button>
           </div>
         ) : schemaLoading ? (
-          <div className={styles.statePanel}>Ładowanie tabel…</div>
+          <DataSkeletonTable />
         ) : table ? (
           <>
-            <div className={styles.tableScroll}>
+            <div
+              className={styles.tableScroll}
+              aria-busy={initialRowsLoading}
+            >
               <table className={styles.table}>
                 <thead>
                   <tr>
+                    <th className={cx(styles.th, styles.selectionTh)}>
+                      <input
+                        ref={selectAllCheckboxRef}
+                        type="checkbox"
+                        className={styles.rowCheckbox}
+                        aria-label="Zaznacz wszystkie wyświetlone wiersze"
+                        checked={allRowsSelected}
+                        disabled={rows.length === 0}
+                        onChange={toggleAllRows}
+                      />
+                    </th>
                     {table.columns.map((column) => (
                       <th
                         key={column.name}
@@ -383,7 +526,7 @@ export function DataBrowser() {
                 <tbody>
                   {rowState === "error" && rows.length === 0 ? (
                     <tr>
-                      <td className={styles.stateCell} colSpan={table.columns.length}>
+                      <td className={styles.stateCell} colSpan={table.columns.length + 1}>
                         <div className={styles.stateTitle}>Nie udało się pobrać danych.</div>
                         <button
                           type="button"
@@ -395,14 +538,10 @@ export function DataBrowser() {
                       </td>
                     </tr>
                   ) : initialRowsLoading ? (
-                    <tr>
-                      <td className={styles.stateCell} colSpan={table.columns.length}>
-                        Ładowanie danych…
-                      </td>
-                    </tr>
+                    <DataSkeletonRows columnCount={table.columns.length + 1} />
                   ) : rows.length === 0 ? (
                     <tr>
-                      <td className={styles.stateCell} colSpan={table.columns.length}>
+                      <td className={styles.stateCell} colSpan={table.columns.length + 1}>
                         Brak wyników dla wybranych kryteriów.
                       </td>
                     </tr>
@@ -410,9 +549,24 @@ export function DataBrowser() {
                     rows.map((row, index) => (
                       <tr
                         key={index}
-                        className={styles.row}
+                        className={cx(
+                          styles.row,
+                          selectedRowIndexes.has(index) && styles.rowSelected,
+                        )}
                         onClick={() => setDetail({ table, record: row })}
                       >
+                        <td
+                          className={styles.selectionCell}
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          <input
+                            type="checkbox"
+                            className={styles.rowCheckbox}
+                            aria-label={`Zaznacz wiersz ${index + 1}`}
+                            checked={selectedRowIndexes.has(index)}
+                            onChange={() => toggleRowSelection(index)}
+                          />
+                        </td>
                         {table.columns.map((column) => (
                           <td
                             key={column.name}
@@ -479,9 +633,14 @@ export function DataBrowser() {
               ))}
             </div>
             <div className={styles.drawerFooter}>
-              <button type="button" className={styles.askButton} onClick={askAboutRecord}>
+              <button
+                type="button"
+                className={styles.askButton}
+                disabled={openingChat}
+                onClick={askAboutRecord}
+              >
                 <ChatIcon size={17} />
-                Zapytaj AI o ten rekord
+                {openingChat ? "Otwieranie czatu…" : "Zapytaj AI o ten rekord"}
               </button>
             </div>
           </div>

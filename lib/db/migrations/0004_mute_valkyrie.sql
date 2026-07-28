@@ -1,0 +1,1 @@
+ALTER TABLE "chatbot"."chat_messages" ADD CONSTRAINT "chat_messages_retry_of_message_id_chat_messages_id_fk" FOREIGN KEY ("retry_of_message_id") REFERENCES "chatbot"."chat_messages"("id") ON DELETE set null ON UPDATE no action;
