@@ -36,8 +36,8 @@ import {
   classifyChatError,
 } from "./chat-error-classification";
 import {
+  buildFinalizationMessages,
   ChatResponseIncompleteError,
-  FINALIZATION_INSTRUCTION,
   MAX_EXPLORATION_ROUNDS,
   shouldStopExploration,
   sqlExecutionFeedback,
@@ -484,16 +484,14 @@ export async function* runChatTurn(params: {
         terminationReason,
       });
 
-      const finalizationSystem: Anthropic.TextBlockParam[] = [
-        ...system,
-        { type: "text", text: FINALIZATION_INSTRUCTION },
-      ];
       yield { type: "status", text: "Przygotowuję odpowiedź…" };
       const finalStream = anthropic.messages.stream({
         model: CHAT_MODEL,
         max_tokens: MAX_OUTPUT_TOKENS,
-        system: finalizationSystem,
-        messages,
+        system,
+        messages: buildFinalizationMessages(messages),
+        tools,
+        tool_choice: { type: "none" },
       });
       let finalizationText = "";
       for await (const event of finalStream) {

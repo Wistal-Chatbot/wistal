@@ -1,3 +1,5 @@
+import type Anthropic from "@anthropic-ai/sdk";
+
 export const MAX_EXPLORATION_ROUNDS = 4;
 export const MAX_SQL_FAILURES = 2;
 
@@ -6,6 +8,26 @@ Nie wolno Ci używać żadnych narzędzi ani prosić o kolejne zapytanie.
 Oprzyj odpowiedź na kontekście rozmowy oraz wynikach zebranych w tej turze.
 Jeśli część danych jest niedostępna albo zapytanie zakończyło się błędem, zaznacz to krótko,
 ale wykorzystaj wszystkie poprawne wyniki, które już masz. Odpowiedz po polsku.`;
+
+/**
+ * Forced finalization must ask for the answer in a *user* turn, not a system
+ * block. Exploration always ends on a user turn made of `tool_result` blocks, and
+ * from there a system-only instruction leaves the model with nothing left to say:
+ * it returns `stop_reason: "end_turn"` with zero content blocks, which surfaces as
+ * ChatResponseIncompleteError and discards every row already fetched. The same
+ * text as a trailing user turn reliably produces the answer.
+ *
+ * The caller pairs this with an unmodified `system` and `tools`, plus
+ * `tool_choice: "none"`: that keeps the cached prefix (tools + system) identical to
+ * the one the exploration rounds already warmed, so finalization is a cache read
+ * rather than a second cache entry, and it makes "no more tools" structural
+ * instead of a request the model can ignore.
+ */
+export function buildFinalizationMessages(
+  messages: readonly Anthropic.MessageParam[],
+): Anthropic.MessageParam[] {
+  return [...messages, { role: "user", content: FINALIZATION_INSTRUCTION }];
+}
 
 export class ChatResponseIncompleteError extends Error {
   readonly code = "CHAT_RESPONSE_INCOMPLETE";
