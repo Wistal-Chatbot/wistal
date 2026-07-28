@@ -36,17 +36,24 @@ the endpoints that actually exist in the code. For the intended/full backend des
 | { type: "status"; text: string }                // temporary Polish progress text
 | { type: "delta"; text: string }                 // incremental answer text
 | { type: "meta";                                 // one terminal metadata line
-    messageId: number; tables: string[];
+    messageId: number; userMessageId: number; tables: string[];
     rowCount: number | null; executionMs: number | null;
     responseMs: number | null; queryAuditId: number | null;
     tokensUsed: number | null; tokenUsage: TokenUsageMetadata | null }
-| { type: "error"; error: string; messageId: number;
+| { type: "error"; error: string; messageId: number | null;
+    userMessageId: number;
     errorCode: string; retryable: boolean; isRetried: boolean }
 ```
 
 `status` is ephemeral UI feedback and is never persisted as message content.
 Tool-loop narration is withheld. After exploration finishes, a separate
 tools-disabled synthesis call emits the final answer incrementally as `delta`.
+After the final delta, `status: "Zapisuję odpowiedź…"` remains visible until the
+assistant row is durable. A turn is complete only after one terminal `meta` or
+`error` line: `meta` confirms that the answer was saved; `error` may have
+`messageId: null` only when the database could not even store the failure record.
+Clients must not treat a completed-looking sequence of deltas or a bare stream
+close as a successful turn.
 Persisted `MessageDto` objects expose `errorCode`, `retryable`, `isRetried`, and
 `retryOfMessageId`. Internal `error_detail` is never serialized.
 
@@ -118,13 +125,18 @@ title from the first message) → shared AI rate limit (**10/min, 200/day** per 
 - **Streaming (default):** NDJSON stream of `ChatTurnEvent`.
 - **`stream: false`:** `{ message: { content }, meta }` (buffered), or `502 { error }`
   on turn failure.
+- The composer remains locked through the temporary save status and unlocks only
+  after terminal `meta`/`error`. If success persistence fails, the visible draft
+  is replaced with retryable `CHAT_RESPONSE_NOT_SAVED`; the terminal error still
+  reaches the client with `messageId: null` if the database is unavailable.
 - Rate/token-limit rejections persist a linked assistant error, so the complete
   rejected turn remains visible after reloading the session.
 - `400` invalid body · `404` session not found · `429` rate limited or
   `{ code: "AI_MONTHLY_TOKEN_LIMIT_EXCEEDED", error }`.
 
-Unexpected operational failures are stored as assistant error messages. A `502`
-returns the same public error fields as the stream event.
+Unexpected operational failures are stored as assistant error messages whenever
+the database is available. A `502` returns the same public error fields as the
+stream event.
 
 ### `POST /api/chat/sessions/:sessionId/messages/:messageId/retry`
 Retry one unresolved, retryable assistant error. The original user message is
