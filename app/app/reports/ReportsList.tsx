@@ -55,6 +55,56 @@ function formatInputParams(inputParams: unknown): string {
   return entries.map(([key, value]) => `${key}: ${value}`).join(" · ");
 }
 
+function ReportCardsSkeleton() {
+  return (
+    <div
+      className={styles.grid}
+      role="status"
+      aria-busy="true"
+      aria-live="polite"
+    >
+      <span className={styles.srOnly}>Ładowanie raportów…</span>
+      {Array.from({ length: 3 }, (_, index) => (
+        <div
+          className={`${styles.reportCard} ${styles.reportCardSkeleton}`}
+          key={index}
+          aria-hidden="true"
+        >
+          <div className={styles.skeletonCardHead}>
+            <span className={styles.skeletonIcon} />
+            <span className={styles.skeletonTitle} />
+          </div>
+          <span className={styles.skeletonText} />
+          <span className={styles.skeletonTextShort} />
+          <span className={styles.skeletonButton} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function RunRowsSkeleton() {
+  return (
+    <>
+      {Array.from({ length: 4 }, (_, rowIndex) => (
+        <tr className={styles.recentRow} key={rowIndex} aria-hidden="true">
+          {Array.from({ length: 5 }, (__, columnIndex) => (
+            <td className={styles.skeletonTableCell} key={columnIndex}>
+              <span
+                className={
+                  (rowIndex + columnIndex) % 3 === 0
+                    ? styles.skeletonTableBarShort
+                    : styles.skeletonTableBar
+                }
+              />
+            </td>
+          ))}
+        </tr>
+      ))}
+    </>
+  );
+}
+
 export function ReportsList() {
   const [reports, setReports] = useState<AiReportPublicDto[]>([]);
   const [runs, setRuns] = useState<AiReportRunDto[]>([]);
@@ -65,40 +115,59 @@ export function ReportsList() {
   const [runSearch, setRunSearch] = useState("");
 
   useEffect(() => {
+    let cancelled = false;
     void (async () => {
       try {
         const r = await listReports();
-        setReports(r);
-        setError(null);
+        if (!cancelled) {
+          setReports(r);
+          setError(null);
+        }
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Nie udało się wczytać raportów.");
+        if (!cancelled) {
+          setError(
+            e instanceof Error ? e.message : "Nie udało się wczytać raportów.",
+          );
+        }
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+    setRunsLoading(true);
     const handle = window.setTimeout(() => {
       void (async () => {
-        setRunsLoading(true);
         try {
           const q = runSearch.trim();
-          setRuns(q ? await searchRuns(q) : await listRuns());
-          setRunsError(null);
+          const nextRuns = q ? await searchRuns(q) : await listRuns();
+          if (!cancelled) {
+            setRuns(nextRuns);
+            setRunsError(null);
+          }
         } catch (e) {
-          setRunsError(
-            e instanceof Error
-              ? e.message
-              : "Nie udało się wczytać uruchomień raportów.",
-          );
+          if (!cancelled) {
+            setRunsError(
+              e instanceof Error
+                ? e.message
+                : "Nie udało się wczytać uruchomień raportów.",
+            );
+          }
         } finally {
-          setRunsLoading(false);
+          if (!cancelled) setRunsLoading(false);
         }
       })();
     }, 250);
 
-    return () => window.clearTimeout(handle);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(handle);
+    };
   }, [runSearch]);
 
   return (
@@ -109,7 +178,7 @@ export function ReportsList() {
       </p>
 
       {loading ? (
-        <div className={styles.stateMsg}>Ładowanie…</div>
+        <ReportCardsSkeleton />
       ) : error ? (
         <div className={styles.stateMsg}>{error}</div>
       ) : reports.length === 0 ? (
@@ -154,13 +223,12 @@ export function ReportsList() {
               <th>Status</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody
+            aria-busy={runsLoading}
+            aria-label={runsLoading ? "Ładowanie uruchomień raportów…" : undefined}
+          >
             {runsLoading ? (
-              <tr className={styles.recentRow}>
-                <td className={styles.emptyCell} colSpan={5}>
-                  Szukanie…
-                </td>
-              </tr>
+              <RunRowsSkeleton />
             ) : runsError ? (
               <tr className={styles.recentRow}>
                 <td className={styles.emptyCell} colSpan={5}>
