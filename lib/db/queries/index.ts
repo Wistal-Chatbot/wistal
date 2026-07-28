@@ -4,6 +4,7 @@ export * from "./chat-messages";
 export * from "./query-audit";
 export * from "./app-settings";
 export * from "./system-prompts";
+export * from "./erp-tables";
 export * from "./quick-actions";
 export * from "./ai-reports";
 export * from "./admin-stats";
