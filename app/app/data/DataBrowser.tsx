@@ -78,6 +78,52 @@ function preferredTableKey(tables: DataSchemaTable[]): string {
   return tables.find((table) => table.key === "towary")?.key ?? tables[0]?.key ?? "";
 }
 
+function DataSkeletonRows({ columnCount }: { columnCount: number }) {
+  return Array.from({ length: 6 }, (_, rowIndex) => (
+    <tr key={rowIndex} aria-hidden="true">
+      {Array.from({ length: columnCount }, (__, columnIndex) => (
+        <td className={styles.skeletonCell} key={columnIndex}>
+          <span
+            className={
+              (rowIndex + columnIndex) % 3 === 0
+                ? styles.skeletonBarShort
+                : styles.skeletonBar
+            }
+          />
+        </td>
+      ))}
+    </tr>
+  ));
+}
+
+function DataSkeletonTable() {
+  const columnCount = 6;
+  return (
+    <div
+      className={styles.tableScroll}
+      role="status"
+      aria-busy="true"
+      aria-live="polite"
+    >
+      <span className={styles.srOnly}>Ładowanie tabel i danych…</span>
+      <table className={styles.table}>
+        <thead>
+          <tr aria-hidden="true">
+            {Array.from({ length: columnCount }, (_, index) => (
+              <th className={styles.th} key={index}>
+                <span className={styles.skeletonHeaderBar} />
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          <DataSkeletonRows columnCount={columnCount} />
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export function DataBrowser() {
   const router = useRouter();
   const [tables, setTables] = useState<DataSchemaTable[]>([]);
@@ -96,6 +142,7 @@ export function DataBrowser() {
   });
   const [menuOpen, setMenuOpen] = useState(false);
   const [detail, setDetail] = useState<{ table: DataSchemaTable; record: DataRow } | null>(null);
+  const [openingChat, setOpeningChat] = useState(false);
 
   const table = useMemo(
     () => tables.find((item) => item.key === query.tableKey) ?? null,
@@ -238,12 +285,13 @@ export function DataBrowser() {
   }
 
   function askAboutRecord() {
-    if (!detail) return;
+    if (!detail || openingChat) return;
     const firstColumn = detail.table.columns[0];
     const title = firstColumn
       ? formatCellValue(detail.record[firstColumn.name], firstColumn)
       : detail.table.label;
     const prompt = `Przeanalizuj rekord ${title} z tabeli ${detail.table.label}. Podaj kluczowe informacje, powiązania i ewentualne ryzyka.`;
+    setOpeningChat(true);
     router.push(`/app/chat?prompt=${encodeURIComponent(prompt)}`);
   }
 
@@ -347,10 +395,13 @@ export function DataBrowser() {
             </button>
           </div>
         ) : schemaLoading ? (
-          <div className={styles.statePanel}>Ładowanie tabel…</div>
+          <DataSkeletonTable />
         ) : table ? (
           <>
-            <div className={styles.tableScroll}>
+            <div
+              className={styles.tableScroll}
+              aria-busy={initialRowsLoading}
+            >
               <table className={styles.table}>
                 <thead>
                   <tr>
@@ -395,11 +446,7 @@ export function DataBrowser() {
                       </td>
                     </tr>
                   ) : initialRowsLoading ? (
-                    <tr>
-                      <td className={styles.stateCell} colSpan={table.columns.length}>
-                        Ładowanie danych…
-                      </td>
-                    </tr>
+                    <DataSkeletonRows columnCount={table.columns.length} />
                   ) : rows.length === 0 ? (
                     <tr>
                       <td className={styles.stateCell} colSpan={table.columns.length}>
@@ -479,9 +526,14 @@ export function DataBrowser() {
               ))}
             </div>
             <div className={styles.drawerFooter}>
-              <button type="button" className={styles.askButton} onClick={askAboutRecord}>
+              <button
+                type="button"
+                className={styles.askButton}
+                disabled={openingChat}
+                onClick={askAboutRecord}
+              >
                 <ChatIcon size={17} />
-                Zapytaj AI o ten rekord
+                {openingChat ? "Otwieranie czatu…" : "Zapytaj AI o ten rekord"}
               </button>
             </div>
           </div>
