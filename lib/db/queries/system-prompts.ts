@@ -77,23 +77,23 @@ export async function createPromptVersion(
   content: string,
   createdBy: string | null,
 ): Promise<SystemPrompt> {
-  const rows = await db.execute<SystemPrompt>(sql`
-    INSERT INTO "chatbot"."system_prompts" ("key", "content", "version", "created_by")
-    SELECT
-      ${key},
-      ${content},
-      COALESCE(MAX("version"), 0) + 1,
-      ${createdBy}::uuid
-    FROM "chatbot"."system_prompts"
-    WHERE "key" = ${key}
-    RETURNING
-      "id",
-      "key",
-      "content",
-      "version",
-      "created_by" AS "createdBy",
-      "created_at" AS "createdAt"
-  `);
+  const [row] = await db
+    .insert(systemPrompts)
+    .values({
+      key,
+      content,
+      createdBy,
+      version: sql<number>`(
+        SELECT COALESCE(MAX(${systemPrompts.version}), 0) + 1
+        FROM ${systemPrompts}
+        WHERE ${systemPrompts.key} = ${key}
+      )`,
+    })
+    .returning();
 
-  return rows[0];
+  if (!row) {
+    throw new Error("Prompt version insert returned no row");
+  }
+
+  return row;
 }
